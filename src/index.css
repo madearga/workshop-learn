@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* iOS safe area + prevent input zoom */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  font-size: 16px;
+}
+#root {
+  min-height: 100dvh;
+}
+.pb-safe {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.75rem);
+}
+/* Mermaid SVG fits narrow screens */
+.mermaid-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+/* Prevent iOS input zoom: inputs must be >=16px */
+input, button, textarea {
+  font-size: 16px;
+}
