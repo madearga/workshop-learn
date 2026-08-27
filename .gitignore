@@ -28,3 +28,5 @@ workshop.db
 __pycache__/
 
 pi-sessions/
+
+pi-agent/.pi/
