@@ -1,3 +1,14 @@
+/**
+ * App.tsx — Pi-first rebuild frontend.
+ *
+ * Changes from the FastAPI version:
+ * - Tutor replies arrive as a typed envelope: {prose, quiz?, mermaid?, svg?, phase?}
+ *   — no client-side brace/fence parsing for quiz content.
+ * - Quiz grading is server-side: submit {quizId, conceptId, selectedLabel, dontKnow}
+ *   to /api/quiz-attempt; the client never knows the correct answer.
+ * - Goal capture: first-session form posts /api/goal, tutor starts with probe.
+ * - Progressive text: /api/turn-stream SSE during a turn (best-effort; final still authoritative).
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,6 +23,25 @@ import remarkGfm from "remark-gfm";
 
 const TOKEN_KEY = "workshop-participant-token";
 const NAME_KEY = "workshop-name";
+const GOAL_KEY = "workshop-goal-set";
+
+interface QuizOption { label: string; value: string }
+interface Quiz {
+  question: string;
+  options: QuizOption[];
+  explanation: string;
+  quizId: string;
+  conceptId: string;
+}
+interface Msg {
+  role: "user" | "assistant";
+  text: string;
+  quiz?: Quiz;
+  mermaidCode?: string;
+  svgCode?: string;
+  research?: { topic: string; facts: string } | null;
+  isPlan?: boolean;
+}
 
 async function registerAndGetToken(): Promise<string> {
   const existing = localStorage.getItem(TOKEN_KEY);
@@ -31,74 +61,17 @@ async function registerAndGetToken(): Promise<string> {
   }
   return "";
 }
-
-function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) || "";
-}
+function getToken(): string { return localStorage.getItem(TOKEN_KEY) || ""; }
 function authHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` };
 }
 
 mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
 
-interface Quiz {
-  question: string;
-  options: { label: string; value: string }[];
-  correct: string;
-  explanation: string;
-}
-
-interface Msg {
-  role: "user" | "assistant";
-  text: string;
-  quiz?: Quiz;
-  mermaidCode?: string;
-  svgCode?: string;
-  research?: { topic: string; facts: string } | null;
-  isPlan?: boolean;
-}
-
-function parseQuiz(text: string): { quiz?: Quiz; clean: string } {
-  // Balanced-brace scan: find {"quiz": ...} and take the whole JSON object.
-  const idx = text.indexOf('{"quiz"');
-  if (idx === -1) return { clean: text };
-  let depth = 0;
-  for (let i = idx; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) {
-        try {
-          const parsed = JSON.parse(text.slice(idx, i + 1)) as { quiz: Quiz };
-          if (!parsed.quiz?.question || !Array.isArray(parsed.quiz.options)) return { clean: text };
-          const clean = (text.slice(0, idx) + text.slice(i + 1)).trim();
-          return { quiz: parsed.quiz, clean };
-        } catch {
-          return { clean: text };
-        }
-      }
-    }
-  }
-  return { clean: text };
-}
-
-function extractMermaid(text: string): { code?: string; clean: string } {
-  const m = text.match(/```mermaid\s*\n([\s\S]*?)```/);
-  if (!m) return { clean: text };
-  return { code: m[1], clean: text.replace(m[0], "").trim() };
-}
-
 function looksLikePlan(text: string): boolean {
   const hasList = (/\n1[.)]/.test(text) || text.startsWith("1.")) && /\n2[.)]/.test(text);
   const asks = /setuju|lanjut\?|konfirmasi|mulai\?/i.test(text);
   return hasList && asks;
-}
-
-function extractResearch(text: string): { topic?: string; clean: string } {
-  const m = text.match(/^\s*\[RESEARCH\]\s*(.+)\s*$/m);
-  if (!m) return { clean: text };
-  return { topic: m[1].trim(), clean: text.replace(m[0], "").trim() };
 }
 
 function Mermaid({ code }: { code: string }) {
@@ -108,7 +81,7 @@ function Mermaid({ code }: { code: string }) {
     const id = "m" + Math.random().toString(36).slice(2);
     mermaid.render(id, code).then(({ svg }) => {
       if (ref.current) ref.current.innerHTML = svg;
-    }).catch(() => setFailed(true)); // #9: show fallback, never swallow
+    }).catch(() => setFailed(true));
   }, [code]);
   if (failed) return <Card className="my-2 p-3 text-sm text-muted-foreground">Diagram tidak dapat dirender.</Card>;
   return (
@@ -135,15 +108,7 @@ function ResearchCard({ topic, facts }: { topic: string; facts: string }) {
   );
 }
 
-
-function extractSvg(text: string): { code?: string; clean: string } {
-  const m = text.match(/```svg\s*\n([\s\S]*?)```/);
-  if (!m) return { clean: text };
-  return { code: m[1], clean: text.replace(m[0], "").trim() };
-}
-
 function sanitizeSvg(svg: string): string {
-  // strip script-capable elements/attributes; keep pure drawing markup
   return svg
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, "")
@@ -157,7 +122,7 @@ function Svg({ code }: { code: string }) {
   useEffect(() => {
     if (!ref.current) return;
     try {
-      ref.current.innerHTML = sanitizeSvg(code); // svg code path (no scripts/foreignObject/event attrs)
+      ref.current.innerHTML = sanitizeSvg(code);
     } catch {
       setFailed(true);
     }
@@ -179,42 +144,56 @@ function shuffle<T>(arr: T[]): T[] {
   return out;
 }
 
-function QuizBlock({ quiz, onAnswer, onContinue, onRegister }: {
+function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
   quiz: Quiz;
-  onAnswer: (ok: boolean, label: string, dontKnow?: boolean) => void;
+  onAnswered: (correct: boolean, label: string, dontKnow: boolean) => void;
   onContinue: (label: string, ok: boolean) => void;
   onRegister: (quiz: Quiz) => void;
 }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [dontKnow, setDontKnow] = useState(false);
-  const [advanced, setAdvanced] = useState(false); // anti double-send
+  const [correct, setCorrect] = useState<boolean | null>(null);
+  const [advanced, setAdvanced] = useState(false);
   const [opts] = useState(() => shuffle(quiz.options));
-  useEffect(() => { onRegister(quiz); }, []); // register as waiting input
+  useEffect(() => { onRegister(quiz); }, []);
   const done = picked !== null || dontKnow;
+
+  const submit = async (label: string, dk: boolean) => {
+    if (dk) { setDontKnow(true); } else { setPicked(label); }
+    try {
+      const r = await fetch("/api/quiz-attempt", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ quizId: quiz.quizId, conceptId: quiz.conceptId, selectedLabel: label, dontKnow: dk }),
+      });
+      const d = await r.json();
+      setCorrect(dk ? false : Boolean(d.correct));
+      onAnswered(dk ? false : Boolean(d.correct), label, dk);
+    } catch {
+      setCorrect(false);
+      onAnswered(false, label, dk);
+    }
+  };
+
   const verdictLabel = dontKnow ? "tidak tahu" : (opts.find(o => o.value === picked)?.label || "");
-  const ok = !dontKnow && picked === quiz.correct;
   return (
     <Card className="my-2 min-w-0 p-4">
       <p className="mb-3 text-sm font-medium break-words">{quiz.question}</p>
       <div className="flex flex-col gap-2">
-        {opts.map((o) => {
-          const isPicked = picked === o.value;
-          const isCorrect = o.value === quiz.correct;
-          return (
-            <Button
-              key={o.value}
-              variant={done && isCorrect ? "default" : isPicked ? "destructive" : "outline"}
-              className="h-auto min-h-9 justify-start whitespace-normal break-words py-2 text-left font-normal"
-              disabled={done}
-              onClick={() => { setPicked(o.value); onAnswer(isCorrect, o.label); }}
-            >
-              {o.label}
-            </Button>
-          );
-        })}
+        {opts.map((o) => (
+          <Button
+            key={o.value}
+            variant={done && picked === o.value ? "default" : "outline"}
+            className="h-auto min-h-9 justify-start whitespace-normal break-words py-2 text-left font-normal"
+            disabled={done}
+            onClick={() => submit(o.label, false)}
+          >
+            {o.label}
+          </Button>
+        ))}
         {!done && (
           <Button variant="ghost" className="h-auto justify-start whitespace-normal break-words py-2 text-left font-normal text-muted-foreground"
-            onClick={() => { setDontKnow(true); onAnswer(false, "tidak tahu", true); }}>
+            onClick={() => submit("tidak tahu", true)}>
             Saya tidak tahu
           </Button>
         )}
@@ -222,15 +201,12 @@ function QuizBlock({ quiz, onAnswer, onContinue, onRegister }: {
       {done && (
         <div className="mt-3 space-y-2">
           <Badge variant="secondary" className="text-[10px]">Terjawab — tekan Lanjut</Badge>
-          <p className={`text-sm font-medium ${dontKnow ? "text-yellow-500" : picked === quiz.correct ? "text-green-500" : "text-red-500"}`}>
-            {dontKnow ? "Tidak apa-apa — ini gap yang akan kita isi." : picked === quiz.correct ? "Benar!" : "Kurang tepat."}
+          <p className={`text-sm font-medium ${dontKnow ? "text-yellow-500" : correct ? "text-green-500" : "text-red-500"}`}>
+            {dontKnow ? "Tidak apa-apa — ini gap yang akan kita isi." : correct ? "Benar!" : "Kurang tepat."}
           </p>
           <p className="text-sm text-muted-foreground">{quiz.explanation}</p>
           {!advanced && (
-            <Button className="w-full" onClick={() => {
-              setAdvanced(true);
-              onContinue(verdictLabel, ok);
-            }}>
+            <Button className="w-full" onClick={() => { setAdvanced(true); onContinue(verdictLabel, dontKnow ? false : Boolean(correct)); }}>
               Lanjut
             </Button>
           )}
@@ -248,10 +224,7 @@ function downloadLesson(msgs: Msg[]) {
       if (m.text) lines.push(`**Tutor:** ${m.text}`, "");
       if (m.quiz) {
         lines.push(`> **Quiz:** ${m.quiz.question}`, "");
-        for (const o of m.quiz.options) {
-          const mark = o.value === m.quiz.correct ? "✓" : " ";
-          lines.push(`> - [${mark}] ${o.label}`);
-        }
+        for (const o of m.quiz.options) lines.push(`> - [ ] ${o.label}`);
         lines.push("", `> Penjelasan: ${m.quiz.explanation}`, "");
       }
       if (m.research) lines.push(`> **Riset (${m.research.topic}):**`, "", m.research.facts, "");
@@ -262,8 +235,7 @@ function downloadLesson(msgs: Msg[]) {
   a.href = URL.createObjectURL(blob);
   a.download = `lesson-${new Date().toISOString().slice(0, 10)}.md`;
   a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10_000); // #8: Safari needs the URL alive
-
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
 function Md({ text }: { text: string }) {
@@ -296,22 +268,43 @@ function Thinking({ phase }: { phase: "chat" | "research" }) {
   );
 }
 
+function GoalForm({ onSet }: { onSet: (topic: string, outcome: string) => void }) {
+  const [topic, setTopic] = useState("");
+  const [outcome, setOutcome] = useState("");
+  return (
+    <Card className="mb-3 p-4">
+      <Badge className="mb-2">Goal belajar</Badge>
+      <p className="mb-3 text-sm text-muted-foreground">Apa yang mau dicapai sesi ini? Tutor memakai ini untuk menyusun rencana.</p>
+      <div className="space-y-2">
+        <Input placeholder="Topik (contoh: Python dasar)" value={topic}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTopic(e.target.value)} />
+        <Input placeholder="Hasil yang diinginkan (contoh: bisa bikin script otomatisasi sederhana)" value={outcome}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOutcome(e.target.value)} />
+        <Button className="w-full" disabled={!topic.trim()}
+          onClick={() => onSet(topic.trim(), outcome.trim())}>
+          Mulai belajar
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 export default function App() {
   const [msgs, setMsgs] = useState<Msg[]>([
-    { role: "assistant", text: 'Ketik topik yang mau dibedah. Contoh: "gimana cara kerja LLM", "apa itu API".' },
+    { role: "assistant", text: "Isi goal belajar dulu, atau langsung ketik topik yang mau dibedah." },
   ]);
   const [inp, setInp] = useState("");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<"chat" | "research">("chat");
+  const [goalDone, setGoalDone] = useState(() => localStorage.getItem(GOAL_KEY) === "1");
+  const [streamText, setStreamText] = useState<string | null>(null);
   const activeQuiz = useRef<{ quiz: Quiz; answered: boolean; ok: boolean; label: string } | null>(null);
   const [dueConcepts, setDueConcepts] = useState<{ concept: string; mastery: number }[]>([]);
-  const inFlight = useRef(false); // sync lock: state can't prevent double-send
-  const history = useRef<{ role: string; content: string }[]>([]);
+  const inFlight = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, streamText]);
 
-  // Resume: ensure identity, then restore prior transcript
   useEffect(() => {
     (async () => {
       let tok = getToken();
@@ -327,8 +320,9 @@ export default function App() {
             role: m.role as "user" | "assistant",
             text: m.content,
           }))]);
+          if (d.messages.length > 0) setGoalDone(true);
         }
-      } catch { /* first session — nothing to restore */ }
+      } catch { /* first session */ }
       try {
         const mr = await fetch("/api/mastery", { headers: { Authorization: `Bearer ${tok}` } });
         const md = await mr.json();
@@ -338,13 +332,31 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const setGoal = useCallback(async (topic: string, outcome: string) => {
+    setGoalDone(true);
+    localStorage.setItem(GOAL_KEY, "1");
+    setMsgs(m => [...m, { role: "user", text: `Goal: ${topic} — ${outcome}` }]);
+    setBusy(true);
+    try {
+      await fetch("/api/goal", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ topic, outcome }),
+      });
+      // The goal turn produces the first probe reply — fetch it via restore-free turn stream is
+      // overkill; the tutor's next message arrives on the next /api/chat. Insert a placeholder.
+      setMsgs(m => [...m, { role: "assistant", text: "Goal dicatat. Cek pertanyaan probe dari tutor di bawah, jawab lewat chat." }]);
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const send = useCallback(async (text: string) => {
     if (!text || inFlight.current) return;
     inFlight.current = true;
     setInp("");
     setPhase("chat");
     setBusy(true);
-    // If a quiz is waiting and the user typed instead, fold the quiz answer into the message
     let fullText = text;
     const aq = activeQuiz.current;
     if (aq && !aq.answered) {
@@ -352,49 +364,56 @@ export default function App() {
       aq.answered = true;
     }
     activeQuiz.current = null;
-    history.current.push({ role: "user", content: fullText });
     setMsgs(m => [...m, { role: "user", text: fullText }]);
+    // Progressive stream: open SSE after posting; display-only until final.
+    const streamTimer = window.setTimeout(() => {
+      try {
+        const es = new EventSource(`/api/turn-stream?token=${encodeURIComponent(getToken())}`);
+        es.onmessage = (ev) => {
+          const d = JSON.parse(ev.data) as { type: string; delta?: string };
+          if (d.type === "text_delta" && d.delta) setStreamText(prev => (prev ?? "") + d.delta!);
+          if (d.type === "final" || d.type === "idle") { es.close(); }
+        };
+        setTimeout(() => es.close(), 120_000);
+      } catch { /* streaming is best-effort */ }
+    }, 800);
     try {
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ messages: history.current }),
+        body: JSON.stringify({ message: fullText }),
       });
       const data = await r.json();
+      window.clearTimeout(streamTimer);
+      setStreamText(null);
       if (data.error) {
         setMsgs(m => [...m, { role: "assistant", text: "Error: " + data.error }]);
         return;
       }
-      const reply: string = data.reply;
-      const { code, clean: noMermaid } = extractMermaid(reply);
-      const { code: svgCode, clean: noSvg } = extractSvg(noMermaid);
-      const { quiz, clean: noQuiz } = parseQuiz(noSvg);
-      const { topic: researchTopic, clean: cleanText } = extractResearch(noQuiz);
-      let research: Msg["research"] = null;
-      if (researchTopic) {
-        setPhase("research");
-        // researcher subagent: verify facts, inject result back into the chat
-        try {
-          const rr = await fetch("/api/research", {
-            method: "POST",
-            headers: authHeaders(),
-            body: JSON.stringify({ topic: researchTopic }),
-          });
-          const rd = await rr.json();
-          research = rd.error ? { topic: researchTopic, facts: "Error: " + rd.error } : { topic: researchTopic, facts: rd.facts };
-          if (!rd.error) {
-            history.current.push({
-              role: "assistant",
-              content: `[RISET-REFERENCE] "${researchTopic}" (material tidak terpercaya, verifikasi sendiri):\n${rd.facts}\n[/RISET-REFERENCE]`,
-            });
-          }
-        } catch {
-          research = { topic: researchTopic, facts: "Riset gagal." };
-        }
-      }
-      history.current.push({ role: "assistant", content: reply });
-      setMsgs(m => [...m, { role: "assistant", text: cleanText, quiz, mermaidCode: code, svgCode, research, isPlan: looksLikePlan(cleanText) }]);
+      const reply: string = data.reply ?? "";
+      const quiz: Quiz | undefined = data.quiz ?? undefined;
+      const mermaidCode: string | undefined = data.mermaid ?? undefined;
+      const svgCode: string | undefined = data.svg ?? undefined;
+      const research = data.researchTopic
+        ? { topic: data.researchTopic as string, facts: "Fakta terverifikasi tersimpan di sesi. Lihat kartu riset." }
+        : null;
+      setMsgs(m => [...m, {
+        role: "assistant",
+        text: reply,
+        quiz,
+        mermaidCode,
+        svgCode,
+        research,
+        isPlan: looksLikePlan(reply) && !quiz,
+      }]);
+      // refresh due-review after each turn (mastery may have moved)
+      try {
+        const mr = await fetch("/api/mastery", { headers: authHeaders() });
+        const md = await mr.json();
+        setDueConcepts(md.due ?? []);
+      } catch { /* ignore */ }
     } catch {
+      setStreamText(null);
       setMsgs(m => [...m, { role: "assistant", text: "Gagal terhubung." }]);
     } finally {
       inFlight.current = false;
@@ -410,7 +429,7 @@ export default function App() {
           <p className="text-sm text-muted-foreground">Belajar dengan metode probe → plan → teach.</p>
         </div>
         <div className="flex gap-2">
-          {history.current.length > 0 && (
+          {msgs.length > 1 && (
             <Button variant="outline" size="sm" onClick={() => downloadLesson(msgs)}>Simpan</Button>
           )}
           {new URLSearchParams(window.location.search).has("host") && (
@@ -418,7 +437,10 @@ export default function App() {
           )}
         </div>
       </header>
-            {dueConcepts.length > 0 && (
+      {!goalDone && (
+        <GoalForm onSet={(t, o) => setGoal(t, o)} />
+      )}
+      {dueConcepts.length > 0 && (
         <Card className="mb-3 border-yellow-500/40 p-3">
           <div className="flex items-start justify-between gap-2">
             <div className="text-sm">
@@ -470,16 +492,9 @@ export default function App() {
             {!busy && m.quiz && (
               <QuizBlock quiz={m.quiz}
                 onRegister={(q) => { activeQuiz.current = { quiz: q, answered: false, ok: false, label: "" }; }}
-                onAnswer={(ok, label, dk) => {
+                onAnswered={(ok, label, dk) => {
                   if (activeQuiz.current) { activeQuiz.current.answered = true; activeQuiz.current.ok = ok; activeQuiz.current.label = label; }
-                  // Step 3: persist quiz attempt as concept evidence
-                  const q = m.quiz;
-                  if (!q) return;
-                  fetch("/api/quiz-event", {
-                    method: "POST",
-                    headers: authHeaders(),
-                    body: JSON.stringify({ question: q.question.slice(0, 500), concept_tag: q.question.slice(0, 80), correct: ok, dont_know: !!dk, picked_label: label.slice(0, 100) }),
-                  }).catch(() => {});
+                  void dk;
                 }}
                 onContinue={(label, ok) => {
                   send(`[quiz] ${ok ? "benar" : "salah"} — pilih: ${label}. Lanjutkan.`);
@@ -488,6 +503,14 @@ export default function App() {
             )}
           </div>
         ))}
+        {streamText && (
+          <div className="space-y-1">
+            <Badge variant="secondary" className="text-[10px]">Tutor</Badge>
+            <Card className="inline-block w-fit max-w-[95%] p-3 text-left break-words text-sm opacity-80">
+              <Md text={streamText} />
+            </Card>
+          </div>
+        )}
         <div ref={endRef} />
       </div>
       <div className="pb-safe fixed inset-x-0 bottom-0 border-t bg-background p-3">

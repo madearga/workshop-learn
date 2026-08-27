@@ -414,8 +414,14 @@ app.post("/api/chat", async (req, reply) => {
 });
 
 // SSE stream endpoint — normalized app-owned events with replay
+// Auth: EventSource can't set headers, so allow ?token= (still participant-scoped).
 app.get("/api/turn-stream", async (req, reply) => {
-  const pid = authPid(req);
+  const qp = (req.query as { token?: string }).token;
+  const header = (req.headers.authorization ?? "").replace(/^Bearer /, "").trim();
+  const tok = qp || header;
+  const row = tok && tok !== HOST_TOKEN ? q.participantByToken.get(tok) as { id: number } | undefined : undefined;
+  if (!row) { reply.code(401).send({ error: "invalid participant token" }); return; }
+  const pid = row.id;
   const s = live.get(pid);
   reply.raw.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -434,6 +440,18 @@ app.get("/api/turn-stream", async (req, reply) => {
 });
 
 app.get("/api/health", async () => ({ ok: true, engine: "pi", model: `${MODEL_PROVIDER}/${MODEL_ID}` }));
+
+// Serve the React build (same dist as before)
+const DIST = path.join(ROOT, "dist");
+app.register(import("@fastify/static"), {
+  root: path.join(DIST, "assets"),
+  prefix: "/assets/",
+});
+app.setNotFoundHandler((req, reply) => {
+  if (req.url.startsWith("/api/")) { reply.code(404).send({ error: "not found" }); return; }
+  const file = req.url === "/host" ? "host.html" : "index.html";
+  reply.type("text/html").send(fs.readFileSync(path.join(DIST, file)));
+});
 
 app.listen({ port: PORT, host: "127.0.0.1" }, (err) => {
   if (err) { console.error(err); process.exit(1); }
