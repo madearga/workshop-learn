@@ -16,12 +16,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import store
+import pi_bridge
 
 app = FastAPI()
 
 ZAI_KEY = os.environ.get("ZAI_API_KEY", "")
 ZAI_URL = "https://api.z.ai/api/coding/paas/v4/chat/completions"
 MODEL = os.environ.get("WORKSHOP_MODEL", "glm-5.3-flash")
+TUTOR_ENGINE = os.environ.get("TUTOR_ENGINE", "pi")  # "pi" | "zai"
 DIST = Path(__file__).parent / "dist"
 
 ACCESS_TOKEN = os.environ.get("WORKSHOP_TOKEN", "")  # demo: single static token
@@ -165,7 +167,7 @@ def chat(req: ChatRequest, authorization: str | None = Header(default=None)):
     pid = _participant_id(authorization)
     if ACCESS_TOKEN and not pid and authorization != f"Bearer {ACCESS_TOKEN}":
         _check_auth(authorization)
-    if not ZAI_KEY:
+    if TUTOR_ENGINE != "pi" and not ZAI_KEY:
         return JSONResponse({"error": "server not configured (ZAI_API_KEY)"}, status_code=500)
     # #1: system prompt is server-controlled; client sends conversation only.
     # Research-reference blocks arrive as assistant messages (untrusted material).
@@ -177,6 +179,18 @@ def chat(req: ChatRequest, authorization: str | None = Header(default=None)):
             if m["role"] == "user":
                 store.save_message(pid, "user", m["content"])
                 break
+    if TUTOR_ENGINE == "pi" and pid is not None:
+        # Pi engine: AGENTS.md is the system prompt, session is Pi-native
+        pkey = f"p{pid}"
+        try:
+            reply = pi_bridge.ask(pkey, msgs[-1]["content"] if msgs else "")
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=502)
+        if pid is not None:
+            store.save_message(pid, "assistant", reply)
+        return {"reply": reply}
+
+    # Z.ai direct engine (fallback)
     payload = {
         "model": MODEL,
         "messages": ([{"role": "system", "content": tutor_system}] if tutor_system else []) + msgs,
