@@ -1,9 +1,18 @@
-# Lesson log ala md-log (callout format)
+# Lesson log ala md-log (callout format) — RESOLVED
 
-*Label: wayfinder:grilling · Status: OPEN · Blocked by: 001, 002*
+*Label: wayfinder:grilling · Status: CLOSED*
 
 ## Question
 
-Referensi punya `md-log`: mirror markdown live dari sesi — callout `[!quote] YOU` / `[!abstract] PI` / `[!question]` / `[!success]/[!failure] Quiz` — untuk dibaca di Obsidian. App kita punya lesson export .md tapi formatnya polos.
+Referensi punya `md-log`: mirror markdown live dari sesi — callout `[!quote] YOU` / `[!abstract] PI` / `[!question]` / `[!success]/[!failure] Quiz` — untuk dibaca di Obsidian. App kita punya lesson export .md tapi formatnya polos. Apakah export diubah ke format callout, dua mode, atau biarkan?
 
-Pertanyaan grilling: apakah export lesson kita diubah ke format callout referensi (segarsa nabrak reader non-Obsidian)? Atau dua mode (plain + callout)? Atau biarkan? Timing live-log (backfill, pre-answer quiz callout tanpa kunci) tidak relevan untuk web — hanya format final yang relevan. Detail: `LEARNER_UX_SPEC.md` §4.
+## Resolution
+
+**Keputusan: satu mode — callout format penuh ala referensi.**
+
+- `downloadLesson` sekarang emit: `[!info] Sesi belajar` (header) → `[!quote] Saya` / `[!abstract] Tutor` per pesan → `[!question] Quiz N` + opsi (pre-answer, tanpa kunci — parity md-log) → `[!info] Riset`.
+- Multi-line di-`>` escape dengan benar; non-Obsidian reader tetap terbaca sebagai blockquote (graceful degradation, sama seperti referensi yang log-nya valid di mana saja).
+- Timing live-log (backfill, dsb.) tidak direplikasi — tidak relevan untuk web app.
+- Verdict `[!success]/[!failure]` tidak ditambahkan: attempt data ada di SQLite, bukan di `msgs` — kalau mau, jadi ticket kecil terpisah.
+
+*Commit: d28455b.*
