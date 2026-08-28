@@ -21,6 +21,11 @@ export interface LiveSession {
   turnId: number;
   done: boolean;
   pendingQuiz?: QuizCard;
+  /** Durable rail mirror — authoritative copy lives in SQLite (participants table). */
+  railPhase?: string;
+  railPlanOk?: number;
+  railNode?: string;
+  railTopic?: string;
 }
 
 /** Extract plain text from a Pi message content field (string | content blocks). */

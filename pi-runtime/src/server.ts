@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS research_items (
 );
 `);
 try { db.exec(`ALTER TABLE participants ADD COLUMN pi_session_file TEXT DEFAULT ''`); } catch { /* column exists */ }
-for (const col of ["goal_topic TEXT DEFAULT ''", "goal_outcome TEXT DEFAULT ''"]) {
+for (const col of ["goal_topic TEXT DEFAULT ''", "goal_outcome TEXT DEFAULT ''", "rail_phase TEXT DEFAULT ''", "rail_plan_ok INTEGER DEFAULT 0", "rail_node TEXT DEFAULT ''", "rail_topic TEXT DEFAULT ''"]) {
   try { db.exec(`ALTER TABLE participants ADD COLUMN ${col}`); } catch { /* column exists */ }
 }
 
@@ -85,6 +85,8 @@ const q = {
   ensureParticipant: db.prepare("INSERT INTO participants (name, token, created_at) VALUES (?, ?, ?)"),
   setSessionFile: db.prepare("UPDATE participants SET pi_session_file = ? WHERE id = ?"),
   setGoal: db.prepare("UPDATE participants SET goal_topic = ?, goal_outcome = ? WHERE id = ?"),
+  setRail: db.prepare("UPDATE participants SET rail_phase = ?, rail_plan_ok = ?, rail_node = ?, rail_topic = ? WHERE id = ?"),
+  clearRail: db.prepare("UPDATE participants SET rail_phase = '', rail_plan_ok = 0, rail_node = '', rail_topic = '' WHERE id = ?"),
   saveQuiz: db.prepare(`INSERT INTO quiz_attempts (participant_id, quiz_id, concept_id, selected_label, correct, dont_know, created_at)
     VALUES (@pid, @quizId, @conceptId, @label, @correct, @dontKnow, @ts)
     ON CONFLICT(participant_id, quiz_id) DO NOTHING`),
@@ -283,6 +285,14 @@ interface TurnContext {
   quizVerdict?: { correct: boolean; selectedLabel: string; dontKnow: boolean; conceptId: string };
 }
 
+function isPlanApprovalPrompt(prompt: string): boolean {
+  return prompt.includes("[plan] disetujui");
+}
+function railTopic(prompt: string): string | undefined {
+  const m = prompt.match(/GOAL PESERTA — topik: ([^;\n]+)/);
+  return m ? m[1].trim().slice(0, 120) : undefined;
+}
+
 // Fading: support ditarik seiring mastery naik (Expertise Reversal Effect).
 // Level dihitung per-konsep dari quiz mastery yang sudah tercatat — no new state.
 function fadingLevel(mastery: number): string {
@@ -334,6 +344,16 @@ async function runTurn(pid: number, prompt: string, ctx?: TurnContext): Promise<
   const quiz = attachQuiz(s, env);
   const sessFile = piSessionFile(s.session);
   if (sessFile) q.setSessionFile.run(sessFile, pid);
+  // Durable learning rail: persist where the learner is (phase + approved plan +
+  // current focus).plan approval arrives as an [plan] verdict message.
+  const planOk = isPlanApprovalPrompt(prompt) || (s.railPlanOk ?? 0) === 1;
+  const nodeMatch = env.mermaid?.match(/\["([^"]{3,60})"\]/g);
+  const railNode = env.phase === "plan" && nodeMatch ? nodeMatch[0].replace(/[[\]"]/g, "") : undefined;
+  s.railPlanOk = planOk ? 1 : (s.railPlanOk ?? 0);
+  q.setRail.run(env.phase ?? s.railPhase ?? "", s.railPlanOk, railNode ?? s.railNode ?? "", railTopic(prompt) ?? s.railTopic ?? "", pid);
+  s.railPhase = env.phase ?? s.railPhase;
+  s.railNode = railNode ?? s.railNode;
+  s.railTopic = railTopic(prompt) ?? s.railTopic;
   s.done = true;
   return {
     turnId,
@@ -357,6 +377,23 @@ app.post("/api/goal", async (req) => {
     `Simpan goal ini sebagai acuan. Mulai PROBE sekarang: satu pertanyaan quiz singkat untuk memetakan level. Jangan jelaskan teori dulu.`,
   );
   return { ok: true, ...result };
+});
+
+// Durable learning rail: where the learner is right now (read by the UI on load).
+app.get("/api/rail", async (req) => {
+  const pid = authPid(req);
+  const row = q.participantById.get(pid) as
+    | { goal_topic: string; rail_phase: string; rail_plan_ok: number; rail_node: string; rail_topic: string }
+    | undefined;
+  if (!row || (!row.rail_phase && !row.rail_topic)) return { rail: null };
+  return {
+    rail: {
+      topic: row.rail_topic || row.goal_topic,
+      phase: row.rail_phase || null,
+      planOk: Boolean(row.rail_plan_ok),
+      node: row.rail_node || null,
+    },
+  };
 });
 
 app.get("/api/mastery", async (req) => {
@@ -482,6 +519,7 @@ app.get("/api/health", async () => ({ ok: true, engine: "pi", model: `${MODEL_PR
 app.post("/api/reset", async (req) => {
   const pid = authPid(req);
   q.setGoal.run("", "", pid);
+  q.clearRail.run(pid);
   q.clearAttempts.run(pid);
   live.get(pid)?.session.dispose();
   live.delete(pid);

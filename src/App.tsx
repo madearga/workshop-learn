@@ -414,6 +414,7 @@ export default function App() {
   const [streamText, setStreamText] = useState<string | null>(null);
   const activeQuiz = useRef<{ quiz: Quiz; answered: boolean; ok: boolean; label: string } | null>(null);
   const [dueConcepts, setDueConcepts] = useState<{ concept: string; label?: string; mastery: number }[]>([]);
+  const [rail, setRail] = useState<{ topic: string; phase: string | null; planOk: boolean; node: string | null } | null>(null);
   const inFlight = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   // Auto-scroll only when the user is already near the bottom — never yank
@@ -448,6 +449,11 @@ export default function App() {
           if (d.messages.length > 0) setGoalDone(true);
         }
       } catch { /* first session */ }
+      try {
+        const rr = await fetch("/api/rail", { headers: { Authorization: `Bearer ${tok}` } });
+        const rd = await rr.json();
+        if (rd.rail) setRail(rd.rail);
+      } catch { /* no rail yet */ }
       try {
         const mr = await fetch("/api/mastery", { headers: { Authorization: `Bearer ${tok}` } });
         const md = await mr.json();
@@ -545,11 +551,14 @@ export default function App() {
         research,
         isPlan: looksLikePlan(reply) && !quiz,
       }]);
-      // refresh due-review after each turn (mastery may have moved)
+      // refresh due-review + rail after each turn (mastery/phase may have moved)
       try {
         const mr = await fetch("/api/mastery", { headers: authHeaders() });
         const md = await mr.json();
         setDueConcepts(md.due ?? []);
+        const rr = await fetch("/api/rail", { headers: authHeaders() });
+        const rd = await rr.json();
+        if (rd.rail) setRail(rd.rail);
       } catch { /* ignore */ }
     } catch {
       setStreamText(null);
@@ -626,6 +635,17 @@ export default function App() {
             }}>
             Review sekarang
           </Button>
+        </Card>
+      )}
+      {rail && (
+        <Card className="mb-3 border-l-4 border-l-[#E68A3C] p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0 text-sm">
+              <span className="font-medium">{rail.topic}</span>
+              <span className="text-muted-foreground"> · {rail.phase === "teach" ? "Sedang belajar" : rail.phase === "plan" ? (rail.planOk ? "Rencana disetujui" : "Nunggu setuju rencana") : rail.phase === "probe" ? "Pemetaan level" : "Mulai"}</span>
+              {rail.node && <p className="text-xs text-muted-foreground break-words mt-0.5">Fokus sekarang: {rail.node}</p>}
+            </div>
+          </div>
         </Card>
       )}
       <div ref={msgsContainerRef} className="flex-1 space-y-3 pb-32">
