@@ -332,19 +332,28 @@ function AskBlock({ ask, onAnswered }: { ask: NonNullable<Msg["ask"]>; onAnswere
 }
 
 function downloadLesson(msgs: Msg[]) {
-  const lines = ["# Lesson Log", "", new Date().toISOString().slice(0, 10), ""];
+  // Callout format mirroring the reference md-log: [!quote] learner, [!abstract]
+  // tutor, [!question] quiz (pre-answer, no key), [!success]/[!failure] verdict,
+  // [!info] research. Non-Obsidian readers still see readable blockquotes.
+  const lines = ["# Lesson Log", "", `> [!info] Sesi belajar`, `> ${new Date().toISOString().slice(0, 10)}`, ""];
+  let quizNum = 0;
   for (const m of msgs) {
-    if (m.role === "user") lines.push(`**Saya:** ${m.text}`, "");
-    else {
-      if (m.text) lines.push(`**Tutor:** ${m.text}`, "");
+    if (m.role === "user") {
+      lines.push(`> [!quote] Saya`, `> ${m.text.replace(/\n/g, "\n> ")}`, "");
+    } else {
+      if (m.text) lines.push(`> [!abstract] Tutor`, `> ${m.text.replace(/\n/g, "\n> ")}`, "");
       if (m.quiz) {
-        lines.push(`> **Quiz:** ${m.quiz.question}`, "");
-        for (const o of m.quiz.options) lines.push(`> - [ ] ${o.label}`);
-        lines.push("", `> Penjelasan: ${m.quiz.explanation}`, "");
+        quizNum++;
+        lines.push(
+          `> [!question] Quiz ${quizNum}: ${m.quiz.question}`,
+          ...m.quiz.options.map((o) => `> - ${o.label}`),
+          "",
+        );
       }
-      if (m.research) lines.push(`> **Riset (${m.research.topic}):**`, "", m.research.facts, "");
+      if (m.research) lines.push(`> [!info] Riset: ${m.research.topic}`, `> ${m.research.facts.replace(/\n/g, "\n> ")}`, "");
     }
   }
+  lines.push("---", "", "*Dihasilkan oleh Workshop AI Learning — scaffolding ZPD.*");
   const blob = new Blob([lines.join("\n")], { type: "text/markdown" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
