@@ -291,10 +291,18 @@ app.post("/api/register", async (req) => {
   return { participant_token: token, name };
 });
 
-app.post("/api/goal", async (req) => {
-  const pid = authPid(req);
-  const b = req.body as { topic?: string; outcome?: string };
-  q.setGoal.run((b.topic ?? "").slice(0, 200), (b.outcome ?? "").slice(0, 300), pid);
+// ---------- TutorTurn: the one deep module. Both HTTP routes are thin adapters over this. ----------
+interface TurnResult {
+  turnId: number;
+  prose: string;
+  phase?: TurnEnvelope["phase"];
+  quiz?: PublicQuiz;
+  mermaid?: string;
+  svg?: string;
+  researchTopic?: string;
+}
+
+async function runTurn(pid: number, prompt: string): Promise<TurnResult> {
   const s = await getLive(pid);
   s.turnBuf = ""; s.turnEvents = []; s.done = false; s.turnId++;
   const turnId = s.turnId;
@@ -316,28 +324,38 @@ app.post("/api/goal", async (req) => {
     }
   });
   try {
-    await s.session.prompt(
-      `GOAL PESERTA — topik: ${b.topic ?? "(belum diisi)"}; hasil yang diinginkan: ${b.outcome ?? "(belum diisi)"}.\n` +
-      `Simpan goal ini sebagai acuan. Mulai PROBE sekarang: satu pertanyaan quiz singkat untuk memetakan level. Jangan jelaskan teori dulu.`,
-    );
+    await s.session.prompt(prompt);
     await s.session.waitForIdle();
   } finally {
     unsub();
   }
-  const env = extractEnvelope(finalText || s.turnBuf);
-  const quizPublic = attachQuiz(s, env);
+  const raw = finalText || s.turnBuf;
+  const env = extractEnvelope(raw);
+  const quiz = attachQuiz(s, env);
   const sessFile = (s.session as unknown as { sessionFile?: string }).sessionFile;
   if (sessFile) q.setSessionFile.run(sessFile, pid);
   s.done = true;
   return {
-    ok: true,
-    reply: env.prose || finalText || s.turnBuf,
+    turnId,
+    prose: env.prose || raw,
     phase: env.phase,
-    quiz: quizPublic,
+    quiz,
     mermaid: env.mermaid,
     svg: env.svg,
-    turnId,
+    researchTopic: env.researchTopic,
   };
+}
+
+app.post("/api/goal", async (req) => {
+  const pid = authPid(req);
+  const b = req.body as { topic?: string; outcome?: string };
+  q.setGoal.run((b.topic ?? "").slice(0, 200), (b.outcome ?? "").slice(0, 300), pid);
+  const result = await runTurn(
+    pid,
+    `GOAL PESERTA — topik: ${b.topic ?? "(belum diisi)"}; hasil yang diinginkan: ${b.outcome ?? "(belum diisi)"}.\n` +
+    `Simpan goal ini sebagai acuan. Mulai PROBE sekarang: satu pertanyaan quiz singkat untuk memetakan level. Jangan jelaskan teori dulu.`,
+  );
+  return { ok: true, ...result };
 });
 
 app.get("/api/mastery", async (req) => {
@@ -403,60 +421,15 @@ app.post("/api/chat", async (req, reply) => {
   const body = req.body as { message?: string; messages?: { role: string; content: string }[] };
   const text = body.message ?? body.messages?.filter((m) => m.role === "user").at(-1)?.content ?? "";
   if (!text.trim()) throw Object.assign(new Error("empty message"), { statusCode: 400 });
-  const s = await getLive(pid);
-  s.turnBuf = ""; s.turnEvents = []; s.done = false; s.turnId++;
-  const turnId = s.turnId;
-
-  // Subscribe before prompting; collect deltas and the settled final.
-  let finalText = "";
-  const unsub = s.session.subscribe((event) => {
-    const anyEvt = event as {
-      type: string;
-      assistantMessageEvent?: { type?: string; delta?: string };
-      message?: { role?: string; content?: unknown };
-    };
-    if (anyEvt.type === "message_update" && anyEvt.assistantMessageEvent?.type === "text_delta") {
-      s.turnBuf += anyEvt.assistantMessageEvent.delta ?? "";
-      s.turnEvents.push({ type: "text_delta", turnId, seq: s.turnEvents.length, delta: anyEvt.assistantMessageEvent.delta ?? "" });
-    } else if (anyEvt.type === "message_end" && anyEvt.message?.role === "assistant") {
-      const content = anyEvt.message.content;
-      finalText = typeof content === "string" ? content
-        : Array.isArray(content) ? content.filter((b: { type?: string }) => b.type === "text").map((b: { text?: string }) => b.text ?? "").join("")
-        : "";
-    }
-  });
-
-  // Register the research tool for this session (per-participant provenance).
-  const research = researchTool(pid);
-  try {
-    const prompt = text.includes("[quiz]")
-      ? text // quiz verdict feedback keeps its existing format
-      : text;
-    await s.session.prompt(prompt);
-    await s.session.waitForIdle();
-  } finally {
-    unsub();
-  }
-
-  const raw = finalText || s.turnBuf;
-  const env = extractEnvelope(raw);
-
-  // Quiz: attach server-side quiz_id + correctLabel; client never sees the answer.
-  const quizPublic = attachQuiz(s, env);
-
-  // Remember the Pi session file for restart-resume.
-  const sessFile = (s.session as unknown as { sessionFile?: string }).sessionFile;
-  if (sessFile) q.setSessionFile.run(sessFile, pid);
-
-  s.done = true;
+  const r = await runTurn(pid, text);
   reply.send({
-    reply: env.prose || raw,
-    phase: env.phase,
-    quiz: quizPublic,
-    mermaid: env.mermaid,
-    svg: env.svg,
-    researchTopic: env.researchTopic,
-    turnId,
+    reply: r.prose,
+    phase: r.phase,
+    quiz: r.quiz,
+    mermaid: r.mermaid,
+    svg: r.svg,
+    researchTopic: r.researchTopic,
+    turnId: r.turnId,
   });
 });
 
