@@ -204,6 +204,8 @@ function attachQuiz(s: LiveSession, env: TurnEnvelope): PublicQuiz | undefined {
   if (!env.quiz || !env.quiz.question || !Array.isArray(env.quiz.options)) return undefined;
   const quizId = randomBytes(8).toString("hex");
   const conceptId = env.quiz.conceptId ?? env.quiz.question.slice(0, 80);
+  // Preserve the model's original option order; the CLIENT shuffles for display
+  // and grades by label, so no server-side shuffle to keep in sync.
   s.pendingQuiz = {
     question: env.quiz.question,
     options: env.quiz.options,
@@ -333,7 +335,15 @@ app.post("/api/quiz-attempt", async (req) => {
     pid, quizId: b.quizId.slice(0, 64), conceptId: b.conceptId.slice(0, 80),
     label: (b.selectedLabel ?? "").slice(0, 100), correct, dontKnow: b.dontKnow ? 1 : 0, ts: Date.now(),
   });
-  return { ok: true, recorded: info.changes > 0, correct: Boolean(correct) };
+  // Instant feedback: reveal the key + explanation only AFTER the choice is recorded.
+  // ponytail: grading needs the pendingQuiz to still be in memory — restart between
+  // attempt and grading grades wrong (recorded but correct=false). Persist pendingQuiz
+  // to SQLite if server restarts mid-quiz become a real complaint.
+  return {
+    ok: true, recorded: info.changes > 0, correct: Boolean(correct),
+    correctLabel: card?.correctLabel ?? "",
+    explanation: card?.explanation ?? "",
+  };
 });
 
 app.get("/api/host-matrix", async (req) => {

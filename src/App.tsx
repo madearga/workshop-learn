@@ -150,16 +150,20 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
   onContinue: (label: string, ok: boolean) => void;
   onRegister: (quiz: Quiz) => void;
 }) {
+  // Two-state, mirroring the reference quiz: select → instant feedback replaces
+  // the option list (✓/✗ marks, key, explanation); then a single Continue.
+  const [state, setState] = useState<"select" | "feedback">("select");
   const [picked, setPicked] = useState<string | null>(null);
   const [dontKnow, setDontKnow] = useState(false);
   const [correct, setCorrect] = useState<boolean | null>(null);
-  const [advanced, setAdvanced] = useState(false);
+  const [fbExplanation, setFbExplanation] = useState<string | null>(null);
+  const [fbCorrectLabel, setFbCorrectLabel] = useState<string | null>(null);
   const [opts] = useState(() => shuffle(quiz.options));
   useEffect(() => { onRegister(quiz); }, []);
-  const done = picked !== null || dontKnow;
 
   const submit = async (label: string, dk: boolean) => {
-    if (dk) { setDontKnow(true); } else { setPicked(label); }
+    if (state !== "select") return;
+    if (dk) setDontKnow(true); else setPicked(label);
     try {
       const r = await fetch("/api/quiz-attempt", {
         method: "POST",
@@ -168,50 +172,70 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
       });
       const d = await r.json();
       setCorrect(dk ? false : Boolean(d.correct));
-      onAnswered(dk ? false : Boolean(d.correct), label, dk);
+      setFbExplanation(typeof d.explanation === "string" && d.explanation ? d.explanation : quiz.explanation);
+      setFbCorrectLabel(typeof d.correctLabel === "string" ? d.correctLabel : null);
     } catch {
       setCorrect(false);
-      onAnswered(false, label, dk);
+      setFbExplanation(quiz.explanation);
+      setFbCorrectLabel(null);
+    } finally {
+      setState("feedback");
+      onAnswered(dk ? false : Boolean(correct), label, dk);
     }
   };
+
+  if (state === "select") {
+    return (
+      <Card className="my-2 min-w-0 p-4">
+        <p className="mb-3 text-sm font-medium break-words">{quiz.question}</p>
+        <div className="flex flex-col gap-2">
+          {opts.map((o) => (
+            <Button key={o.value} variant="outline"
+              className="h-auto min-h-9 justify-start whitespace-normal break-words py-2 text-left font-normal"
+              onClick={() => submit(o.label, false)}>
+              {o.label}
+            </Button>
+          ))}
+          <Button variant="ghost"
+            className="h-auto justify-start whitespace-normal break-words py-2 text-left font-normal text-muted-foreground"
+            onClick={() => submit("tidak tahu", true)}>
+            Saya tidak tahu
+          </Button>
+        </div>
+      </Card>
+    );
+  }
 
   const verdictLabel = dontKnow ? "tidak tahu" : (opts.find(o => o.value === picked)?.label || "");
   return (
     <Card className="my-2 min-w-0 p-4">
       <p className="mb-3 text-sm font-medium break-words">{quiz.question}</p>
       <div className="flex flex-col gap-2">
-        {opts.map((o) => (
-          <Button
-            key={o.value}
-            variant={done && picked === o.value ? "default" : "outline"}
-            className="h-auto min-h-9 justify-start whitespace-normal break-words py-2 text-left font-normal"
-            disabled={done}
-            onClick={() => submit(o.label, false)}
-          >
-            {o.label}
-          </Button>
-        ))}
-        {!done && (
-          <Button variant="ghost" className="h-auto justify-start whitespace-normal break-words py-2 text-left font-normal text-muted-foreground"
-            onClick={() => submit("tidak tahu", true)}>
-            Saya tidak tahu
-          </Button>
-        )}
+        {opts.map((o) => {
+          const isKey = fbCorrectLabel ? o.label === fbCorrectLabel : false;
+          const isPick = !dontKnow && picked === o.label;
+          return (
+            <div key={o.value}
+              className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm whitespace-normal break-words ${isKey ? "border-green-500/60 bg-green-500/10" : isPick ? "border-red-500/60 bg-red-500/10" : "opacity-60"}`}>
+              <span aria-hidden>{isKey ? "✓" : isPick ? "✗" : "·"}</span>
+              <span className="min-w-0 flex-1">{o.label}</span>
+            </div>
+          );
+        })}
+        {dontKnow && <p className="text-sm font-medium text-yellow-500">Tidak apa-apa — ini gap yang akan kita isi.</p>}
       </div>
-      {done && (
-        <div className="mt-3 space-y-2">
-          <Badge variant="secondary" className="text-[10px]">Terjawab — tekan Lanjut</Badge>
-          <p className={`text-sm font-medium ${dontKnow ? "text-yellow-500" : correct ? "text-green-500" : "text-red-500"}`}>
-            {dontKnow ? "Tidak apa-apa — ini gap yang akan kita isi." : correct ? "Benar!" : "Kurang tepat."}
+      <div className="mt-3 space-y-2">
+        <Badge variant="secondary" className="text-[10px]">Terjawab</Badge>
+        {!dontKnow && (
+          <p className={`text-sm font-medium ${correct ? "text-green-500" : "text-red-500"}`}>
+            {correct ? "Benar!" : `Kurang tepat — jawabannya: ${fbCorrectLabel || "(lihat di atas)"}`}
           </p>
-          <p className="text-sm text-muted-foreground">{quiz.explanation}</p>
-          {!advanced && (
-            <Button className="w-full" onClick={() => { setAdvanced(true); onContinue(verdictLabel, dontKnow ? false : Boolean(correct)); }}>
-              Lanjut
-            </Button>
-          )}
-        </div>
-      )}
+        )}
+        <p className="text-sm text-muted-foreground">{fbExplanation ?? quiz.explanation}</p>
+        <Button className="w-full" onClick={() => onContinue(verdictLabel, dontKnow ? false : Boolean(correct))}>
+          Lanjut
+        </Button>
+      </div>
     </Card>
   );
 }
