@@ -362,9 +362,12 @@ app.post("/api/goal", async (req) => {
 app.get("/api/mastery", async (req) => {
   const pid = authPid(req);
   const mastery = masteryByConcept(pid);
+  // Human-readable labels: slugs are internal ids ("basket-traveling" → "Traveling basket").
+  const label = (slug: string) =>
+    slug.split("-").filter((w) => !["di", "dan", "yang"].includes(w)).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   const due = Object.entries(mastery).filter(([, m]) => m < 0.5)
     .sort((a, b) => a[1] - b[1]).slice(0, 2)
-    .map(([concept, m]) => ({ concept, mastery: m }));
+    .map(([concept, m]) => ({ concept, label: label(concept), mastery: m }));
   return { mastery, due };
 });
 

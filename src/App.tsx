@@ -413,7 +413,7 @@ export default function App() {
   const [goalDone, setGoalDone] = useState(() => localStorage.getItem(GOAL_KEY) === "1");
   const [streamText, setStreamText] = useState<string | null>(null);
   const activeQuiz = useRef<{ quiz: Quiz; answered: boolean; ok: boolean; label: string } | null>(null);
-  const [dueConcepts, setDueConcepts] = useState<{ concept: string; mastery: number }[]>([]);
+  const [dueConcepts, setDueConcepts] = useState<{ concept: string; label?: string; mastery: number }[]>([]);
   const inFlight = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   // Auto-scroll only when the user is already near the bottom — never yank
@@ -612,7 +612,7 @@ export default function App() {
               <p className="font-medium">Konsep yang perlu diingatkan:</p>
               <ul className="mt-1 list-disc pl-5 text-muted-foreground">
                 {dueConcepts.map(d => (
-                  <li key={d.concept}>{d.concept} <span className="text-xs">({Math.round(d.mastery * 100)}%)</span></li>
+                  <li key={d.concept}>{d.label ?? d.concept} <span className="text-xs">(masih {Math.round(d.mastery * 100)}% mantap)</span></li>
                 ))}
               </ul>
             </div>
