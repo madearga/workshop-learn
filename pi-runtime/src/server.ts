@@ -21,10 +21,12 @@ import {
   SessionManager,
   SettingsManager,
   defineTool,
-  type AgentSession,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import Database from "better-sqlite3";
+import { parseTutorReply } from "./tutor-reply.js";
+import type { QuizCard, TurnEnvelope } from "./types.js";
+import { messageText, piSessionFile, readTranscript, type LiveSession } from "./participant-session.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -104,41 +106,9 @@ function masteryByConcept(pid: number): Record<string, number> {
   return out;
 }
 
-// ---------- tutor turn envelope ----------
-interface QuizCard {
-  question: string;
-  options: { label: string; value: string }[];
-  correctLabel: string; // server-only
-  explanation: string;
-  quizId: string;
-  conceptId: string;
-}
-interface TurnEnvelope {
-  prose: string;
-  phase?: "probe" | "plan" | "teach";
-  quiz?: {
-    question: string;
-    options: { label: string; value: string }[];
-    correct?: string;
-    explanation?: string;
-    conceptId?: string;
-  };
-  mermaid?: string;
-  svg?: string;
-  researchTopic?: string;
-}
+// ---------- tutor turn envelope (types in types.ts) ----------
 type PublicQuiz = NonNullable<TurnEnvelope["quiz"]> & { quizId: string; conceptId: string };
 
-// ---------- Pi session manager ----------
-interface LiveSession {
-  session: AgentSession;
-  lastUsed: number;
-  turnBuf: string;          // active-turn accumulated text
-  turnEvents: object[];     // SSE replay buffer for current turn
-  turnId: number;
-  done: boolean;
-  pendingQuiz?: QuizCard;
-}
 const live = new Map<number, LiveSession>();
 
 function sessionDirFor(pid: number) {
@@ -232,40 +202,7 @@ function attachQuiz(s: LiveSession, env: TurnEnvelope): PublicQuiz | undefined {
   return { ...env.quiz, quizId, conceptId };
 }
 
-// ---------- envelope: ask the model for structured JSON, validate, repair once ----------
-function extractEnvelope(raw: string): TurnEnvelope {
-  // Find the JSON object: first fenced ```json block OR first balanced {...} in the text.
-  // (Model prose often contains nested fences, so a naive fence regex can cut early.)
-  let candidate = raw;
-  let fenced = false;
-  const fence = raw.match(/```json\s*\n([\s\S]*?)```/);
-  if (fence) { candidate = fence[1]; fenced = true; }
-  else {
-    const start = raw.indexOf("{");
-    if (start !== -1) {
-      let depth = 0;
-      for (let i = start; i < raw.length; i++) {
-        if (raw[i] === "{") depth++;
-        else if (raw[i] === "}") { depth--; if (depth === 0) { candidate = raw.slice(start, i + 1); break; } }
-      }
-    }
-  }
-  try {
-    const parsed = JSON.parse(candidate) as TurnEnvelope;
-    if (typeof parsed.prose === "string") {
-      const prose = fenced ? raw.replace(fence![0], "").trim() : "";
-      return {
-        prose: [prose, parsed.prose].filter(Boolean).join("\n\n"),
-        phase: parsed.phase,
-        quiz: parsed.quiz,
-        mermaid: parsed.mermaid,
-        svg: parsed.svg,
-        researchTopic: parsed.researchTopic,
-      };
-    }
-  } catch { /* fall through */ }
-  return { prose: raw.trim() };
-}
+// envelope parsing moved to tutor-reply.ts (deep module, table-tested)
 
 // ---------- fastify ----------
 const app = Fastify({ logger: false });
@@ -317,10 +254,7 @@ async function runTurn(pid: number, prompt: string): Promise<TurnResult> {
       s.turnBuf += anyEvt.assistantMessageEvent.delta ?? "";
       s.turnEvents.push({ type: "text_delta", turnId, seq: s.turnEvents.length, delta: anyEvt.assistantMessageEvent.delta ?? "" });
     } else if (anyEvt.type === "message_end" && anyEvt.message?.role === "assistant") {
-      const content = anyEvt.message.content;
-      finalText = typeof content === "string" ? content
-        : Array.isArray(content) ? content.filter((c: { type?: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("")
-        : "";
+      finalText = messageText(anyEvt.message.content);
     }
   });
   try {
@@ -330,9 +264,9 @@ async function runTurn(pid: number, prompt: string): Promise<TurnResult> {
     unsub();
   }
   const raw = finalText || s.turnBuf;
-  const env = extractEnvelope(raw);
+  const env = parseTutorReply(raw).envelope;
   const quiz = attachQuiz(s, env);
-  const sessFile = (s.session as unknown as { sessionFile?: string }).sessionFile;
+  const sessFile = piSessionFile(s.session);
   if (sessFile) q.setSessionFile.run(sessFile, pid);
   s.done = true;
   return {
@@ -393,26 +327,11 @@ app.get("/api/host-matrix", async (req) => {
   return { participants: out };
 });
 
-// restore: rebuild transcript from Pi session file (Pi is the authority)
+// restore: rebuild transcript from Pi session file (via ParticipantSession facade)
 app.get("/api/restore", async (req) => {
   const pid = authPid(req);
   const row = q.participantById.get(pid) as { pi_session_file: string } | undefined;
-  const file = row?.pi_session_file;
-  if (!file || !fs.existsSync(file)) return { messages: [] };
-  const messages: { role: string; content: string; quiz?: unknown }[] = [];
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const entry = JSON.parse(line) as { type?: string; message?: { role?: string; content?: unknown } };
-      const msg = entry.message;
-      if (!msg?.role) continue;
-      const text = typeof msg.content === "string" ? msg.content
-        : Array.isArray(msg.content) ? msg.content.filter((b: { type?: string }) => b.type === "text").map((b: { text?: string }) => b.text ?? "").join("") : "";
-      if (!text) continue;
-      messages.push({ role: msg.role, content: text });
-    } catch { /* skip malformed line */ }
-  }
-  return { messages };
+  return { messages: readTranscript(row?.pi_session_file) };
 });
 
 // chat: POST starts a turn; SSE delivers it. Keep POST /api/chat for the old UI (non-streaming).
