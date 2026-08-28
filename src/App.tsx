@@ -36,6 +36,7 @@ interface Msg {
   role: "user" | "assistant";
   text: string;
   quiz?: Quiz;
+  ask?: { question: string; options?: { label: string; description?: string }[] } | null;
   mermaidCode?: string;
   svgCode?: string;
   research?: { topic: string; facts: string } | null;
@@ -264,6 +265,71 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
   );
 }
 
+// Non-graded question card (ask_user_question parity): preference/direction —
+// no correct answer, no grading. Single-select + "Lainnya" custom route, or
+// free-text when the tutor sent no options. Answer rides to the tutor as text.
+function AskBlock({ ask, onAnswered }: { ask: NonNullable<Msg["ask"]>; onAnswered: (answer: string) => void }) {
+  const hasOptions = Array.isArray(ask.options) && ask.options.length > 0;
+  const [answered, setAnswered] = useState<string | null>(null);
+  const [custom, setCustom] = useState(false);
+  const [text, setText] = useState("");
+  const submit = (v: string) => {
+    if (!v.trim() || answered !== null) return;
+    setAnswered(v.trim());
+    onAnswered(v.trim());
+  };
+  if (answered !== null) {
+    return (
+      <Card className="my-2 min-w-0 p-4">
+        <p className="mb-3 text-sm font-medium break-words">{ask.question}</p>
+        <div className="flex items-start gap-2 text-sm">
+          <span className="text-green-500" aria-hidden>✓</span>
+          <span className="min-w-0 flex-1 break-words">{answered}</span>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card className="my-2 min-w-0 border-primary/40 p-4">
+      <Badge variant="secondary" className="mb-2 text-[10px]">Pertanyaan</Badge>
+      <p className="mb-3 text-sm font-medium break-words">{ask.question}</p>
+      {hasOptions && !custom && (
+        <div className="flex flex-col gap-2">
+          {ask.options!.map((o) => (
+            <div key={o.label}>
+              <Button variant="outline"
+                className="h-auto min-h-9 w-full justify-start whitespace-normal break-words py-2 text-left font-normal"
+                onClick={() => submit(o.label)}>
+                {o.label}
+              </Button>
+              {o.description && <p className="pl-4 pt-1 text-xs text-muted-foreground break-words">{o.description}</p>}
+            </div>
+          ))}
+          <Button variant="ghost"
+            className="h-auto justify-start whitespace-normal break-words py-2 text-left font-normal text-muted-foreground"
+            onClick={() => setCustom(true)}>
+            Lainnya
+          </Button>
+        </div>
+      )}
+      {(custom || !hasOptions) && (
+        <div className="space-y-2">
+          {!hasOptions && <p className="text-xs text-muted-foreground">Tulis jawaban lo:</p>}
+          <Input value={text} placeholder="Jawaban lo..."
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setText(e.target.value)}
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && submit(text)} />
+          <Button className="w-full" disabled={!text.trim()} onClick={() => submit(text)}>Kirim</Button>
+          {custom && (
+            <Button variant="ghost" className="w-full text-muted-foreground" onClick={() => { setCustom(false); setText(""); }}>
+              Kembali ke pilihan
+            </Button>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function downloadLesson(msgs: Msg[]) {
   const lines = ["# Lesson Log", "", new Date().toISOString().slice(0, 10), ""];
   for (const m of msgs) {
@@ -415,6 +481,7 @@ export default function App() {
         role: "assistant",
         text: d.reply ?? "Goal dicatat.",
         quiz,
+        ask: d.ask ?? null,
         mermaidCode: d.mermaid ?? undefined,
         svgCode: d.svg ?? undefined,
         isPlan: looksLikePlan(d.reply ?? "") && !quiz,
@@ -476,6 +543,7 @@ export default function App() {
         role: "assistant",
         text: reply,
         quiz,
+        ask: data.ask ?? null,
         mermaidCode,
         svgCode,
         research,
@@ -605,6 +673,9 @@ export default function App() {
                   });
                 }}
               />
+            )}
+            {!busy && m.ask && (
+              <AskBlock ask={m.ask} onAnswered={(ans) => send(`[ask] ${m.ask!.question} — jawaban: ${ans}`)} />
             )}
           </div>
         ))}

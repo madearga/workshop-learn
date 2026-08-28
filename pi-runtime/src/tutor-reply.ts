@@ -89,6 +89,7 @@ function buildEnvelope(parsed: TurnEnvelope, raw: string, fencedBlock?: string):
     prose: [prefix, parsed.prose].filter(Boolean).join("\n\n"),
     phase: parsed.phase,
     quiz: parsed.quiz,
+    ask: parsed.ask,
     mermaid: parsed.mermaid,
     svg: parsed.svg,
     researchTopic: parsed.researchTopic,

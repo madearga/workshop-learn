@@ -273,6 +273,7 @@ interface TurnResult {
   prose: string;
   phase?: TurnEnvelope["phase"];
   quiz?: PublicQuiz;
+  ask?: TurnEnvelope["ask"];
   mermaid?: string;
   svg?: string;
   researchTopic?: string;
@@ -339,6 +340,7 @@ async function runTurn(pid: number, prompt: string, ctx?: TurnContext): Promise<
     prose: env.prose || raw,
     phase: env.phase,
     quiz,
+    ask: env.ask,
     mermaid: env.mermaid,
     svg: env.svg,
     researchTopic: env.researchTopic,
@@ -436,6 +438,7 @@ app.post("/api/chat", async (req, reply) => {
     reply: r.prose,
     phase: r.phase,
     quiz: r.quiz,
+    ask: r.ask,
     mermaid: r.mermaid,
     svg: r.svg,
     researchTopic: r.researchTopic,
