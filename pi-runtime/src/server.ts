@@ -204,12 +204,26 @@ function attachQuiz(s: LiveSession, env: TurnEnvelope): PublicQuiz | undefined {
   if (!env.quiz || !env.quiz.question || !Array.isArray(env.quiz.options)) return undefined;
   const quizId = randomBytes(8).toString("hex");
   const conceptId = env.quiz.conceptId ?? env.quiz.question.slice(0, 80);
+  // Normalize the model's `correct` (may be a letter "a", a value, or a full label)
+  // into the option's LABEL — the client grades by label.
+  const opts = env.quiz.options;
+  const correctRaw = (env.quiz.correct ?? "").trim();
+  let correctLabel = correctRaw;
+  if (correctRaw && !opts.some(o => o.label === correctRaw)) {
+    const byValue = opts.find(o => o.value === correctRaw);
+    if (byValue) correctLabel = byValue.label;
+    else if (/^[a-zA-Z]$/.test(correctRaw)) {
+      const idx = correctRaw.toLowerCase().charCodeAt(0) - 97;
+      if (idx >= 0 && idx < opts.length) correctLabel = opts[idx].label;
+      else correctLabel = "";
+    } else correctLabel = "";
+  }
   // Preserve the model's original option order; the CLIENT shuffles for display
   // and grades by label, so no server-side shuffle to keep in sync.
   s.pendingQuiz = {
     question: env.quiz.question,
-    options: env.quiz.options,
-    correctLabel: env.quiz.correct ?? "",
+    options: opts,
+    correctLabel,
     explanation: env.quiz.explanation ?? "",
     quizId, conceptId,
   };
@@ -257,10 +271,28 @@ interface TurnContext {
   quizVerdict?: { correct: boolean; selectedLabel: string; dontKnow: boolean; conceptId: string };
 }
 
+// Fading: support ditarik seiring mastery naik (Expertise Reversal Effect).
+// Level dihitung per-konsep dari quiz mastery yang sudah tercatat — no new state.
+function fadingLevel(mastery: number): string {
+  if (mastery >= 0.66) {
+    return "LOW — peserta sudah kuat di konsep ini: JANGAN kasih hint/langkah. Minta dia kerjakan/terangkan sendiri dulu, baru koreksi.";
+  }
+  if (mastery >= 0.33) {
+    return "MEDIUM — hint tipis boleh, tapi dorong dia coba sendiri dulu sebelum kamu bantu jawab.";
+  }
+  return "HIGH — boleh kasih langkah terstruktur kalau dia buntu, tapi tarik bantuan segera setelah dia nunjukin bisa.";
+}
+
 async function runTurn(pid: number, prompt: string, ctx?: TurnContext): Promise<TurnResult> {
-  const fullPrompt = ctx?.quizVerdict
-    ? `${prompt}\n\n[KONTEKS TURN] Hasil quiz terakhir peserta: ${ctx.quizVerdict.dontKnow ? "menjawab tidak tahu" : ctx.quizVerdict.correct ? "BENAR" : "SALAH"}${ctx.quizVerdict.dontKnow ? "" : ` (memilih: ${ctx.quizVerdict.selectedLabel})`} — konsep: ${ctx.quizVerdict.conceptId}.`
-    : prompt;
+  let fullPrompt = prompt;
+  if (ctx?.quizVerdict) {
+    const v = ctx.quizVerdict;
+    const verdict = v.dontKnow ? "menjawab tidak tahu" : v.correct ? "BENAR" : "SALAH";
+    fullPrompt = `${prompt}\n\n[KONTEKS TURN] Hasil quiz terakhir peserta: ${verdict}${v.dontKnow ? "" : ` (memilih: ${v.selectedLabel})`} — konsep: ${v.conceptId}.`;
+    // Inject fading level untuk konsep yang baru di-quiz.
+    const m = masteryByConcept(pid)[v.conceptId] ?? 0;
+    fullPrompt += `\nFADING level untuk konsep "${v.conceptId}" (mastery ${m}): ${fadingLevel(m)}`;
+  }
   const s = await getLive(pid);
   s.turnBuf = ""; s.turnEvents = []; s.done = false; s.turnId++;
   const turnId = s.turnId;
