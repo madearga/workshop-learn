@@ -364,7 +364,7 @@ export default function App() {
     }
   }, []);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, verdict?: { correct: boolean; selectedLabel: string; dontKnow: boolean; conceptId: string }) => {
     if (!text || inFlight.current) return;
     inFlight.current = true;
     setInp("");
@@ -394,7 +394,7 @@ export default function App() {
       const r = await fetch("/api/chat", {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ message: fullText }),
+        body: JSON.stringify(verdict ? { message: fullText, verdict } : { message: fullText }),
       });
       const data = await r.json();
       window.clearTimeout(streamTimer);
@@ -510,7 +510,12 @@ export default function App() {
                   void dk;
                 }}
                 onContinue={(label, ok) => {
-                  send(`[quiz] ${ok ? "benar" : "salah"} — pilih: ${label}. Lanjutkan.`);
+                  send("[quiz] Lanjutkan.", {
+                    correct: ok,
+                    selectedLabel: label,
+                    dontKnow: label === "tidak tahu",
+                    conceptId: m.quiz!.conceptId,
+                  });
                 }}
               />
             )}

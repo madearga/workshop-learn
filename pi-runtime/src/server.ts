@@ -238,8 +238,15 @@ interface TurnResult {
   svg?: string;
   researchTopic?: string;
 }
+/** Structured context that rides beside the text — the model never re-parses invented syntax. */
+interface TurnContext {
+  quizVerdict?: { correct: boolean; selectedLabel: string; dontKnow: boolean; conceptId: string };
+}
 
-async function runTurn(pid: number, prompt: string): Promise<TurnResult> {
+async function runTurn(pid: number, prompt: string, ctx?: TurnContext): Promise<TurnResult> {
+  const fullPrompt = ctx?.quizVerdict
+    ? `${prompt}\n\n[KONTEKS TURN] Hasil quiz terakhir peserta: ${ctx.quizVerdict.dontKnow ? "menjawab tidak tahu" : ctx.quizVerdict.correct ? "BENAR" : "SALAH"}${ctx.quizVerdict.dontKnow ? "" : ` (memilih: ${ctx.quizVerdict.selectedLabel})`} — konsep: ${ctx.quizVerdict.conceptId}.`
+    : prompt;
   const s = await getLive(pid);
   s.turnBuf = ""; s.turnEvents = []; s.done = false; s.turnId++;
   const turnId = s.turnId;
@@ -258,7 +265,7 @@ async function runTurn(pid: number, prompt: string): Promise<TurnResult> {
     }
   });
   try {
-    await s.session.prompt(prompt);
+    await s.session.prompt(fullPrompt);
     await s.session.waitForIdle();
   } finally {
     unsub();
@@ -337,10 +344,15 @@ app.get("/api/restore", async (req) => {
 // chat: POST starts a turn; SSE delivers it. Keep POST /api/chat for the old UI (non-streaming).
 app.post("/api/chat", async (req, reply) => {
   const pid = authPid(req);
-  const body = req.body as { message?: string; messages?: { role: string; content: string }[] };
+  const body = req.body as {
+    message?: string;
+    messages?: { role: string; content: string }[];
+    verdict?: { correct: boolean; selectedLabel: string; dontKnow: boolean; conceptId: string };
+  };
   const text = body.message ?? body.messages?.filter((m) => m.role === "user").at(-1)?.content ?? "";
   if (!text.trim()) throw Object.assign(new Error("empty message"), { statusCode: 400 });
-  const r = await runTurn(pid, text);
+  const isQuizVerdict = text.startsWith("[quiz]");
+  const r = await runTurn(pid, isQuizVerdict ? "Lanjutkan pengajaran berdasarkan hasil quiz berikut." : text, isQuizVerdict && body.verdict ? { quizVerdict: body.verdict } : undefined);
   reply.send({
     reply: r.prose,
     phase: r.phase,
