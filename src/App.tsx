@@ -9,7 +9,7 @@
  * - Goal capture: first-session form posts /api/goal, tutor starts with probe.
  * - Progressive text: /api/turn-stream SSE during a turn (best-effort; final still authoritative).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
-import mermaid from "mermaid";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -66,7 +65,16 @@ function authHeaders(): Record<string, string> {
   return { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` };
 }
 
-mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+// mermaid loaded lazily — it's ~2.5MB of diagram engines; only needed when a
+// diagram actually arrives (Vercel rule 2.4 dynamic imports for heavy deps).
+let mermaidReady: Promise<typeof import("mermaid").default> | null = null;
+function getMermaid() {
+  mermaidReady ??= import("mermaid").then((m) => {
+    m.default.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+    return m.default;
+  });
+  return mermaidReady;
+}
 
 function looksLikePlan(text: string): boolean {
   const hasList = (/\n1[.)]/.test(text) || text.startsWith("1.")) && /\n2[.)]/.test(text);
@@ -74,14 +82,16 @@ function looksLikePlan(text: string): boolean {
   return hasList && asks;
 }
 
-function Mermaid({ code }: { code: string }) {
+const Mermaid = memo(function Mermaid({ code }: { code: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
+    let alive = true;
     const id = "m" + Math.random().toString(36).slice(2);
-    mermaid.render(id, code).then(({ svg }) => {
-      if (ref.current) ref.current.innerHTML = svg;
-    }).catch(() => setFailed(true));
+    getMermaid().then((mm) => mm.render(id, code)).then(({ svg }) => {
+      if (alive && ref.current) ref.current.innerHTML = svg;
+    }).catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
   }, [code]);
   if (failed) return <Card className="my-2 p-3 text-sm text-muted-foreground">Diagram tidak dapat dirender.</Card>;
   return (
@@ -89,7 +99,7 @@ function Mermaid({ code }: { code: string }) {
       <div ref={ref} />
     </Card>
   );
-}
+});
 
 function ResearchCard({ topic, facts }: { topic: string; facts: string }) {
   return (
@@ -276,13 +286,16 @@ function downloadLesson(msgs: Msg[]) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }
 
-function Md({ text }: { text: string }) {
+// memo: during streaming, every text_delta re-renders App — without memo the
+// ENTIRE history re-parses markdown per delta. Md/Mermaid only change when
+// their own text/code changes (Vercel rule 5.6 extract to memoized components).
+const Md = memo(function Md({ text }: { text: string }) {
   return (
     <div className="prose-sm space-y-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:leading-relaxed [&_strong]:font-semibold [&_ul]:list-disc [&_ul]:pl-5">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );
-}
+});
 
 function Thinking({ phase }: { phase: "chat" | "research" }) {
   return (
