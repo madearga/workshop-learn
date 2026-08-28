@@ -68,5 +68,18 @@ const validQuiz = {
   check("smart quotes: no crash", r.envelope.prose.length > 0, r);
 }
 
+// 9. raw newline inside string value → repair
+{
+  const raw = '```json\n{"prose":"baris satu\nbaris dua","phase":"probe"}\n```';
+  const r = parseTutorReply(raw);
+  check("repair: raw newline in prose", r.source === "repaired-json" && r.envelope.prose.includes("baris satu"), r.source);
+}
+// 10. label with backticks (code ticks) survive
+{
+  const raw = '```json\n{"prose":"ok","quiz":{"question":"q","options":[{"label":"`print(2+3)`","value":"b"},{"label":"5","value":"a"}],"correct":"a","explanation":"e","conceptId":"c"}}\n```';
+  const r = parseTutorReply(raw);
+  check("backtick label: parsed", r.envelope.quiz?.options[0]?.label === "`print(2+3)`", r.envelope.quiz);
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

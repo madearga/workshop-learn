@@ -47,6 +47,8 @@ export function readTranscript(file: string | undefined | null): { role: string;
       if (!msg?.role) continue;
       const text = messageText(msg.content);
       if (!text) continue;
+      // never surface app-internal prompts (goal wiring, turn context) to the UI
+      if (msg.role === "user" && (text.startsWith("GOAL PESERTA —") || text.includes("[KONTEKS TURN]"))) continue;
       messages.push({ role: msg.role, content: text });
     } catch { /* skip malformed line */ }
   }

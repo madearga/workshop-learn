@@ -36,10 +36,29 @@ function isValid(e: unknown): e is TurnEnvelope {
 
 /** One repair pass: fix the common model tics we've actually seen. */
 function repair(json: string): string {
-  return json
-    .replace(/,\s*([}\]])/g, "$1")          // trailing commas
-    .replace(/[\u201c\u201d]/g, '"')          // smart double quotes
-    .replace(/[\u2018\u2019]/g, "'");         // smart single quotes
+  // Escape raw control chars inside string values (model wrote literal newlines/tabs in prose).
+  // Walk char-by-char so we only touch content INSIDE strings.
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  for (const ch of json) {
+    if (escaped) { out += ch; escaped = false; continue; }
+    if (ch === "\\" && inString) { out += ch; escaped = true; continue; }
+    if (ch === '"') { inString = !inString; out += ch; continue; }
+    if (inString) {
+      if (ch === "\n") { out += "\\n"; continue; }
+      if (ch === "\t") { out += "\\t"; continue; }
+      if (ch === "\r") { continue; }
+      out += ch;
+      continue;
+    }
+    // outside strings: still fix trailing commas + smart quotes
+    out += ch;
+  }
+  return out
+    .replace(/,\s*([}\]])/g, "$1")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'");
 }
 
 /** Balanced-brace scan: return the first complete top-level {...} object. */
