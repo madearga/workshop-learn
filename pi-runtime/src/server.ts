@@ -116,11 +116,18 @@ interface QuizCard {
 interface TurnEnvelope {
   prose: string;
   phase?: "probe" | "plan" | "teach";
-  quiz?: Omit<QuizCard, "correctLabel">;
+  quiz?: {
+    question: string;
+    options: { label: string; value: string }[];
+    correct?: string;
+    explanation?: string;
+    conceptId?: string;
+  };
   mermaid?: string;
   svg?: string;
   researchTopic?: string;
 }
+type PublicQuiz = NonNullable<TurnEnvelope["quiz"]> & { quizId: string; conceptId: string };
 
 // ---------- Pi session manager ----------
 interface LiveSession {
@@ -210,6 +217,21 @@ async function directZai(messages: { role: string; content: string }[], temperat
   return data.choices[0]?.message?.content ?? "";
 }
 
+// Attach a server-side quizId + hidden correctLabel to an envelope's quiz (if any).
+function attachQuiz(s: LiveSession, env: TurnEnvelope): PublicQuiz | undefined {
+  if (!env.quiz || !env.quiz.question || !Array.isArray(env.quiz.options)) return undefined;
+  const quizId = randomBytes(8).toString("hex");
+  const conceptId = env.quiz.conceptId ?? env.quiz.question.slice(0, 80);
+  s.pendingQuiz = {
+    question: env.quiz.question,
+    options: env.quiz.options,
+    correctLabel: env.quiz.correct ?? "",
+    explanation: env.quiz.explanation ?? "",
+    quizId, conceptId,
+  };
+  return { ...env.quiz, quizId, conceptId };
+}
+
 // ---------- envelope: ask the model for structured JSON, validate, repair once ----------
 function extractEnvelope(raw: string): TurnEnvelope {
   // Find the JSON object: first fenced ```json block OR first balanced {...} in the text.
@@ -274,11 +296,48 @@ app.post("/api/goal", async (req) => {
   const b = req.body as { topic?: string; outcome?: string };
   q.setGoal.run((b.topic ?? "").slice(0, 200), (b.outcome ?? "").slice(0, 300), pid);
   const s = await getLive(pid);
-  await s.session.prompt(
-    `GOAL PESERTA — topik: ${b.topic ?? "(belum diisi)"}; hasil yang diinginkan: ${b.outcome ?? "(belum diisi)"}.\n` +
-    `Simpan goal ini sebagai acuan. Mulai PROBE sekarang: satu pertanyaan quiz singkat untuk memetakan level. Jangan jelaskan teori dulu.`,
-  );
-  return { ok: true };
+  s.turnBuf = ""; s.turnEvents = []; s.done = false; s.turnId++;
+  const turnId = s.turnId;
+  let finalText = "";
+  const unsub = s.session.subscribe((event) => {
+    const anyEvt = event as {
+      type: string;
+      assistantMessageEvent?: { type?: string; delta?: string };
+      message?: { role?: string; content?: unknown };
+    };
+    if (anyEvt.type === "message_update" && anyEvt.assistantMessageEvent?.type === "text_delta") {
+      s.turnBuf += anyEvt.assistantMessageEvent.delta ?? "";
+      s.turnEvents.push({ type: "text_delta", turnId, seq: s.turnEvents.length, delta: anyEvt.assistantMessageEvent.delta ?? "" });
+    } else if (anyEvt.type === "message_end" && anyEvt.message?.role === "assistant") {
+      const content = anyEvt.message.content;
+      finalText = typeof content === "string" ? content
+        : Array.isArray(content) ? content.filter((c: { type?: string }) => c.type === "text").map((c: { text?: string }) => c.text ?? "").join("")
+        : "";
+    }
+  });
+  try {
+    await s.session.prompt(
+      `GOAL PESERTA — topik: ${b.topic ?? "(belum diisi)"}; hasil yang diinginkan: ${b.outcome ?? "(belum diisi)"}.\n` +
+      `Simpan goal ini sebagai acuan. Mulai PROBE sekarang: satu pertanyaan quiz singkat untuk memetakan level. Jangan jelaskan teori dulu.`,
+    );
+    await s.session.waitForIdle();
+  } finally {
+    unsub();
+  }
+  const env = extractEnvelope(finalText || s.turnBuf);
+  const quizPublic = attachQuiz(s, env);
+  const sessFile = (s.session as unknown as { sessionFile?: string }).sessionFile;
+  if (sessFile) q.setSessionFile.run(sessFile, pid);
+  s.done = true;
+  return {
+    ok: true,
+    reply: env.prose || finalText || s.turnBuf,
+    phase: env.phase,
+    quiz: quizPublic,
+    mermaid: env.mermaid,
+    svg: env.svg,
+    turnId,
+  };
 });
 
 app.get("/api/mastery", async (req) => {
@@ -383,19 +442,7 @@ app.post("/api/chat", async (req, reply) => {
   const env = extractEnvelope(raw);
 
   // Quiz: attach server-side quiz_id + correctLabel; client never sees the answer.
-  let quizPublic: TurnEnvelope["quiz"] | undefined;
-  if (env.quiz && env.quiz.question && Array.isArray(env.quiz.options)) {
-    const quizId = randomBytes(8).toString("hex");
-    const conceptId = (env.quiz as { conceptId?: string }).conceptId ?? env.quiz.question.slice(0, 80);
-    (s as LiveSession & { pendingQuiz?: QuizCard }).pendingQuiz = {
-      question: env.quiz.question,
-      options: env.quiz.options,
-      correctLabel: (env.quiz as { correct?: string }).correct ?? "",
-      explanation: env.quiz.explanation ?? "",
-      quizId, conceptId,
-    };
-    quizPublic = { ...env.quiz, quizId, conceptId };
-  }
+  const quizPublic = attachQuiz(s, env);
 
   // Remember the Pi session file for restart-resume.
   const sessFile = (s.session as unknown as { sessionFile?: string }).sessionFile;

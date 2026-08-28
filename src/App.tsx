@@ -338,14 +338,27 @@ export default function App() {
     setMsgs(m => [...m, { role: "user", text: `Goal: ${topic} — ${outcome}` }]);
     setBusy(true);
     try {
-      await fetch("/api/goal", {
+      const r = await fetch("/api/goal", {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ topic, outcome }),
       });
-      // The goal turn produces the first probe reply — fetch it via restore-free turn stream is
-      // overkill; the tutor's next message arrives on the next /api/chat. Insert a placeholder.
-      setMsgs(m => [...m, { role: "assistant", text: "Goal dicatat. Cek pertanyaan probe dari tutor di bawah, jawab lewat chat." }]);
+      const d = await r.json();
+      if (d.error) {
+        setMsgs(m => [...m, { role: "assistant", text: "Error: " + d.error }]);
+        return;
+      }
+      const quiz: Quiz | undefined = d.quiz ?? undefined;
+      setMsgs(m => [...m, {
+        role: "assistant",
+        text: d.reply ?? "Goal dicatat.",
+        quiz,
+        mermaidCode: d.mermaid ?? undefined,
+        svgCode: d.svg ?? undefined,
+        isPlan: looksLikePlan(d.reply ?? "") && !quiz,
+      }]);
+    } catch {
+      setMsgs(m => [...m, { role: "assistant", text: "Gagal menyimpan goal." }]);
     } finally {
       setBusy(false);
     }
