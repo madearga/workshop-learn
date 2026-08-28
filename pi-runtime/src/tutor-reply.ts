@@ -116,7 +116,7 @@ export function parseTutorReply(raw: string): ParsedReply {
     try {
       const parsed = JSON.parse(candidate) as TurnEnvelope;
       if (isValid(parsed)) {
-        return { envelope: buildEnvelope(parsed, raw.replace(candidate, "").trim() ? raw : raw), source: "balanced-json" };
+        return { envelope: buildEnvelope(parsed, raw), source: "balanced-json" };
       }
     } catch { /* fall to repair */ }
     try {

@@ -16,12 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Skeleton } from "@/components/ui/skeleton";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 const TOKEN_KEY = "workshop-participant-token";
-const NAME_KEY = "workshop-name";
 const GOAL_KEY = "workshop-goal-set";
 
 interface QuizOption { label: string; value: string }
@@ -57,7 +55,6 @@ async function registerAndGetToken(): Promise<string> {
   const d = await r.json();
   if (d.participant_token) {
     localStorage.setItem(TOKEN_KEY, d.participant_token);
-    localStorage.setItem(NAME_KEY, d.name);
     return d.participant_token;
   }
   return "";
@@ -373,24 +370,15 @@ const Md = memo(function Md({ text }: { text: string }) {
   );
 });
 
-function Thinking({ phase }: { phase: "chat" | "research" }) {
+function Thinking() {
   return (
     <Card className="inline-flex w-fit flex-col gap-2 p-3">
       <div className="flex items-center gap-1">
         {[0, 150, 300].map(d => (
           <span key={d} className="h-2 w-2 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: `${d}ms` }} />
         ))}
-        <span className="ml-2 text-xs text-muted-foreground">
-          {phase === "research" ? "Memverifikasi fakta…" : "Tutor mikir…"}
-        </span>
+        <span className="ml-2 text-xs text-muted-foreground">Tutor mikir…</span>
       </div>
-      {phase === "research" && (
-        <div className="space-y-1.5">
-          <Skeleton className="h-3 w-56" />
-          <Skeleton className="h-3 w-44" />
-          <Skeleton className="h-3 w-52" />
-        </div>
-      )}
     </Card>
   );
 }
@@ -422,7 +410,6 @@ export default function App() {
   ]);
   const [inp, setInp] = useState("");
   const [busy, setBusy] = useState(false);
-  const [phase, setPhase] = useState<"chat" | "research">("chat");
   const [goalDone, setGoalDone] = useState(() => localStorage.getItem(GOAL_KEY) === "1");
   const [streamText, setStreamText] = useState<string | null>(null);
   const activeQuiz = useRef<{ quiz: Quiz; answered: boolean; ok: boolean; label: string } | null>(null);
@@ -507,7 +494,6 @@ export default function App() {
     if (!text || inFlight.current) return;
     inFlight.current = true;
     setInp("");
-    setPhase("chat");
     setBusy(true);
     let fullText = text;
     const aq = activeQuiz.current;
@@ -675,7 +661,7 @@ export default function App() {
             {m.mermaidCode && <Mermaid code={m.mermaidCode} />}
             {m.svgCode && <Svg code={m.svgCode} />}
             {m.research && <ResearchCard topic={m.research.topic} facts={m.research.facts} />}
-            {busy && i === msgs.length - 1 && m.role === "assistant" && !m.quiz && <Thinking phase={phase} />}
+            {busy && i === msgs.length - 1 && m.role === "assistant" && !m.quiz && <Thinking />}
             {!busy && m.quiz && (
               <QuizBlock quiz={m.quiz}
                 onRegister={(q) => { activeQuiz.current = { quiz: q, answered: false, ok: false, label: "" }; }}
