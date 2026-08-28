@@ -16,6 +16,7 @@ Learner experience workshop-learn **identik dengan amosblomqvist/learn** (quiz i
 
 ## Decisions so far
 
+- [Quiz instant feedback (dua-state)](tickets/001-quiz-instant-feedback.md): kartu select→feedback, kunci+penjelasan dibalikin server setelah attempt, I-don't-know jalur terpisah; shuffle client-side, grading by label.
 - [Goal form mengikuti pola referensi](tickets/002-goal-form-ala-ask-user-question.md): goal bukan layar terpisah — jadi kartu `ask_user_question` non-graded dalam alur probe.
 
 ## Not yet specified
