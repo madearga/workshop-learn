@@ -480,7 +480,18 @@ export default function App() {
       <header className="flex items-start justify-between py-4 sm:py-6">
         <div>
           <h1 className="text-xl font-semibold">Workshop AI Learning</h1>
-          <p className="text-sm text-muted-foreground">Belajar dengan metode probe → plan → teach.</p>
+          <p className="text-sm text-muted-foreground">
+            Self-learning dengan scaffolding{" "}
+            <a
+              href="https://doi.org/10.1007/s10639-024-13112-0"
+              target="_blank"
+              rel="noreferrer"
+              className="underline underline-offset-2 hover:text-foreground"
+            >
+              Zone of Proximal Development
+            </a>{" "}
+            — tutor mengukur level lo, lalu mengajar tepat di zona itu.
+          </p>
         </div>
         <div className="flex gap-2">
           {msgs.length > 1 && (
