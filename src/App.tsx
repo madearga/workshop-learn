@@ -41,6 +41,7 @@ interface Msg {
   svgCode?: string;
   research?: { topic: string; facts: string } | null;
   isPlan?: boolean;
+  planApproved?: boolean;
 }
 
 async function registerAndGetToken(): Promise<string> {
@@ -640,12 +641,21 @@ export default function App() {
             </Badge>
             {m.isPlan && !m.quiz && (
               <Card className="w-fit max-w-[95%] border-primary/40 p-3 sm:p-4">
-                <Badge className="mb-2">Rencana belajar</Badge>
-                <div className="text-sm"><Md text={m.text} /></div>
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" onClick={() => send("Setuju, mulai dari poin 1.")}>Setuju, mulai</Button>
-                  <Button size="sm" variant="outline" onClick={() => send("Ubah rencananya:")}>Ubah</Button>
+                <div className="flex items-center gap-2">
+                  <Badge className="mb-2">Rencana belajar</Badge>
+                  {m.planApproved && <Badge variant="secondary" className="mb-2 text-[10px]">Disetujui</Badge>}
                 </div>
+                <div className="text-sm"><Md text={m.text} /></div>
+                {m.mermaidCode && <Mermaid code={m.mermaidCode} />}
+                {!m.planApproved && (
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" onClick={() => { setMsgs(prev => prev.map((p, j) => (j === i ? { ...p, planApproved: true } : p))); send("[plan] disetujui. Mulai dari node pertama."); }}>
+                      Setuju, mulai
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => send("[plan] Ubah rencananya:")}>Ubah</Button>
+                  </div>
+                )}
+                {m.planApproved && <p className="mt-2 text-xs text-muted-foreground">Lanjut belajar sesuai rencana.</p>}
               </Card>
             )}
             {!m.isPlan && (
