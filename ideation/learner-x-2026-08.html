@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ideation — Learner Experience workshop-learn · Agustus 2026</title>
+<style>
+  body{font-family:-apple-system,system-ui,sans-serif;max-width:880px;margin:0 auto;padding:2rem 1.25rem;color:#1a1a1a;line-height:1.55;background:#fff}
+  h1{font-size:1.7rem;margin-bottom:.2rem}
+  h2{font-size:1.15rem;margin-top:2.2rem;border-bottom:2px solid #eee;padding-bottom:.3rem}
+  h3{font-size:1rem;margin-top:1.4rem;margin-bottom:.3rem}
+  .meta{color:#888;font-size:.85rem;margin-bottom:1.5rem}
+  .idea{border:1px solid #e5e5e5;border-radius:10px;padding:1rem 1.1rem;margin:.9rem 0;background:#fafafa}
+  .idea.top{border-left:4px solid #E68A3C;background:#fff8f2}
+  .idea.good{border-left:4px solid #2C5F7A}
+  .idea .why{color:#444;font-size:.9rem;margin-top:.5rem}
+  .idea .hooks{color:#888;font-size:.8rem;margin-top:.4rem;font-family:ui-monospace,monospace}
+  .rank{display:inline-block;background:#1a1a1a;color:#fff;border-radius:6px;padding:.1rem .5rem;font-size:.75rem;margin-right:.4rem}
+  .axes{font-size:.75rem;color:#2C5F7A;font-family:ui-monospace,monospace}
+  .verdict{margin-top:.5rem;font-size:.85rem;padding:.5rem .7rem;border-radius:6px}
+  .verdict.crit{background:#fdf0ee;color:#8a2c1e}
+  .verdict.ok{background:#eef5ee;color:#2c5f2c}
+  .rej{color:#999;font-size:.85rem}
+  .summary{background:#f4f4f4;border-radius:10px;padding:1rem 1.2rem;font-size:.9rem}
+</style>
+</head>
+<body>
+
+<h1>Ideation — Learner Experience workshop-learn</h1>
+<p class="meta">Agustus 2026 · 5 frame (feasibility, delight, business, cross-cutting, contrarian) · 38 kandidat → 7 survivors · repo-grounded</p>
+
+<div class="summary">
+<b>Grounding:</b> quiz instant-feedback ✅ · ask cards ✅ · plan gate + DAG ✅ · mastery/heatmap ✅ · export ✅ — semua parity resolved.
+<b>Gap terbesar dari evidence:</b> phase/approval = state UI lokal (tidak durable) · due review tanpa waktu/interval · facilitator cuma lihat heatmap · scaffold level ada di prompt tapi tak terlihat learner.
+<b>Tren pasar:</b> konvergensi ke try→hint→explain (Study Mode, Guided Learning), unaided transfer check, spaced retrieval berbiaya rendah, facilitator-visible practice.
+</div>
+
+<h2>Top 7 — Ranked</h2>
+
+<div class="idea top">
+<h3><span class="rank">1</span>🥇 Durable Learning Rail — phase, node, plan jadi state server</h3>
+<p>Persist `phase`, status plan approval, dan node DAG aktif ke SQLite peserta. Saat restore, tampilkan rail ringkas: "Kamu di: Praktik node 2 dari 4 — Rule of thirds", plus "due review 1 konsep" dalam satu pandangan. Reload/reconnect/koneksi lemah tidak lagi menghapus posisi belajar.</p>
+<div class="why"><b>Kenapa #1:</b> Fondasi untuk hampir semua ide lain (transfer check, review queue, facilitator loop butuh durable state). Evidence menunjukkan phase sudah dikirim server tapi dibuang frontend; approval hilang saat reload. Value tertinggi, dependency terendah.</div>
+<div class="hooks">hooks: server.ts runTurn (phase sudah ada), participants table + kolom baru, /api/restore</div>
+</div>
+
+<div class="idea top">
+<h3><span class="rank">2</span>🥈 Real Spaced Retrieval Queue</h3>
+<p>Ganti "mastery &lt; 0.5 → muncul banner" dengan queue persisted: due timestamp, interval, status selesai/undo per konsep. Masuk app → tawarkan tepat 1 soal retrieval. Benar → interval memanjang; salah/"tidak tahu" → repair micro-loop + interval pendek. Tanpa notifikasi, tanpa utang review — "nanti aja" selalu sah.</p>
+<div class="why"><b>Kenapa #2:</b> Retention adalah janji utama tutor (lupakan = hilang), dan evidence menunjukkan attempts sudah punya timestamp tapi tidak ada state waktu sama sekali. Ini fitur paling langsung terasa oleh peserta setelah workshop selesai.</div>
+<div class="hooks">hooks: quiz_attempts (created_at sudah ada), /api/mastery, due-review card UI</div>
+</div>
+
+<div class="idea top">
+<h3><span class="rank">3</span>🥉 Try→Hint→Explain Help Ladder (Mode "Coba Dulu")</h3>
+<p>Kartu bantuan eksplisit 3 tingkat: "cek langkah gue" → "petunjuk kecil" → "contoh serupa". Pilihan dikirim sebagai turn context; fading HIGH/MED/LOW yang sekarang tersembunyi di prompt jadi terlihat dan dikendalikan peserta. Tiap jalur bantu berakhir di quiz check yang sama.</p>
+<div class="why"><b>Kenapa #3:</b> Tren pasar 2025-26 konvergen ke sini (Study Mode, Guided Learning). Evidence menunjukkan fading sudah ada di prompt — ini cuma membuatnya visible + learner-controlled. Buat minta bantuan jadi skill, bukan kegagalan.</div>
+<div class="hooks">hooks: envelope ask (baru), AGENTS.md fading rules, QuizBlock flow</div>
+</div>
+
+<div class="idea good">
+<h3><span class="rank">4</span>Misconception Fingerprint + Dominant Wrong Answer</h3>
+<p>Persist bukan cuma benar/salah tapi opsi salah yang dipilih — jadi "fingerprint" miskonsepsi per konsep. Facilitator lihat cluster: "12 peserta mengira mencuci = buat manis", bukan sel merah generik. Learner dapat retrieval yang menyasar kebingungan spesifiknya sendiri.</p>
+<div class="why"><b>Kenapa:</b> Data sudah tersimpan (selected_label di quiz_attempts) tapi tak dipakai. Dua pihak untung sekaligus dari evidence yang sama: miskonsepsi jadi spesifik, bukan angka. Input langsung untuk review-queue (#2).</div>
+<div class="hooks">hooks: quiz_attempts.selected_label (sudah ada), /api/host-matrix, repair micro-loop</div>
+</div>
+
+<div class="idea good">
+<h3><span class="rank">5</span>Repair → Retry Micro-loop</h3>
+<p>Setelah salah/"tidak tahu": kartu repair ringkas (satu distingsi kunci + satu micro-step) lalu langsung 1 soal analogi baru sebelum lanjut. dont_know dibedakan dari salah tebak — uncertainty diganjar lebih ringan daripada miskonsepsi yakin.</p>
+<div class="why"><b>Kenapa:</b> Spec referensi mewajibkan "repair the node before building on it" — sekarang belum ada. Menutup gap sebelum tutor membangun di atas fondasi rapuh. Murah: reuse dont_know flag + mastery untuk pilih scaffold level.</div>
+<div class="hooks">hooks: QuizBlock feedback state, AGENTS.md repair rule, mastery-based fading</div>
+</div>
+
+<div class="idea good">
+<h3><span class="rank">6</span>One-page Post-workshop Outcome Report</h3>
+<p>Report client-ready otomatis setelah workshop: kehadiran, konsep yang dicoba, mastery kohort, tingkat "tidak tahu", 3 gap terbesar — tanpa transcript, tanpa ranking individu. Plus rekomendasi tema sesi lanjutan berbasis evidence.</p>
+<div class="why"><b>Kenapa:</b> Ini mesin bisnis: "kami bikin workshop" jadi "ini bukti dampaknya" — alasan renewal/upsell. Paling murah dari semua fitur facilitator (data sudah ada, cuma perlu render + export).</div>
+<div class="hooks">hooks: /api/host-matrix, quiz_attempts, host token boundary</div>
+</div>
+
+<div class="idea good">
+<h3><span class="rank">7</span>Confidence Tap — "Yakin / Lumayan / Belum yakin"</h3>
+<p>Setelah quiz feedback, satu tap kalibrasi diri. Dipasangkan privat dengan hasil: "yakin tapi salah" → koreksi kontras + prioritas review; "ragu tapi benar" → bukti bisa dipercaya, ulang nanti. Tanpa analitik palsu, tanpa paparan publik.</p>
+<div class="why"><b>Kenapa:</b> Metakognisi = belajar mengenali sendiri apa yang rapuh. Kolom kecil di SQLite, satu tap di UI — murah. Tapi menambah dimensi yang mastery score sendiri tak punya: keyakinan vs bukti.</div>
+<div class="hooks">hooks: QuizBlock feedback, quiz_attempts + kolom confidence, review queue</div>
+</div>
+
+<h2>Yang ditolak (dengan alasan)</h2>
+<p class="rej">• <b>Streak counter / badges / leaderboard</b> — melanggar anti-slop identity; risk jadi cheap gamification tinggi. Replaced by: Janji 2 Menit (return cue yang jujur).<br>
+• <b>Voice rehearsal / avatar roleplay</b> — dependency besar (voice SDK), value belum terbukti di konteks corporate ID. Teks dulu.<br>
+• <b>Live "pause and reteach" alerts</b> — butuh durable identity + polling; terlalu besar untuk sekarang, dan belum ada bukti fasilitator mau ngintip dashboard di tengah sesi.<br>
+• <b>Session library / akumulasi lintas workshop</b> — kontra produktif dari contrarian frame: akumulasi menimbulkan risiko surveilans & stale label; bounded session + opt-in carry-forward lebih selaras dengan privacy expectation peserta korporat.<br>
+• <b>KaTeX/math rendering</b> — sudah di-defer di tiket #005; tetap deferred sampai ada materi math.</p>
+
+<h2>Contrarian notes (dianggap, tidak di-adopsi penuh)</h2>
+<p class="rej">Frame contrarian menghasilkan 7 pandangan alternatif yang layak diingat: (1) tutor kadang menolak menjawab sebelum learner mencoba — sebagian sudah ada via fading, bisa diperkuat nanti; (2) hilangkan mastery % dari vocab learner — diganti action choice; (3) chat bukan satu-satunya interface; (4) standardisasi struggle dulu sebelum personalisasi; (5) field-test obligation vs spaced repetition; (6) reset sebagai privacy feature; (7) dashboard menunjukkan kegagalan sistem, bukan learner. Ide #7 (dashboard = sistem gagal) patut diingat saat desain heatmap: dominan salah = mungkin soalnya ambigu, bukan muridnya bodoh.</p>
+
+<h2>Urutan eksekusi yang disarankan</h2>
+<p><b>#1 Durable Rail</b> dulu (fondasi) → <b>#2 Spaced Queue</b> (butuh rail) → <b>#3 Help Ladder</b> (independen) → <b>#4 Fingerprint</b> → <b>#5 Repair loop</b> → <b>#6 Report</b> → <b>#7 Confidence tap</b>. #3 bisa dikerjakan paralel dengan #1.</p>
+
+<p class="meta">Dihasilkan oleh ce-ideate · 5 frame · 4 evidence dossiers · Agustus 2026</p>
+</body>
+</html>
