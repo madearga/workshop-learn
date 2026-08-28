@@ -31,8 +31,8 @@ import { messageText, piSessionFile, readTranscript, type LiveSession } from "./
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..", "..");
 const PORT = Number(process.env.PORT ?? 8001);
-const MODEL_PROVIDER = process.env.PI_PROVIDER ?? "zai";
-const MODEL_ID = process.env.PI_MODEL ?? "glm-5.3-flash";
+const MODEL_PROVIDER = process.env.PI_PROVIDER ?? "openai-codex";
+const MODEL_ID = process.env.PI_MODEL ?? "gpt-5.6-luna";
 const HOST_TOKEN = process.env.WORKSHOP_TOKEN ?? "";
 const SESSIONS_DIR = path.join(ROOT, "pi-sessions");
 const TUTOR_PROMPT = fs.readFileSync(path.join(ROOT, "tutor_system.txt"), "utf8");
