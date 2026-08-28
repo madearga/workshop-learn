@@ -159,6 +159,7 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
   const [fbExplanation, setFbExplanation] = useState<string | null>(null);
   const [fbCorrectLabel, setFbCorrectLabel] = useState<string | null>(null);
   const [opts] = useState(() => shuffle(quiz.options));
+  const [stale, setStale] = useState(false);
   useEffect(() => { onRegister(quiz); }, []);
 
   const submit = async (label: string, dk: boolean) => {
@@ -171,6 +172,15 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
         body: JSON.stringify({ quizId: quiz.quizId, conceptId: quiz.conceptId, selectedLabel: label, dontKnow: dk }),
       });
       const d = await r.json();
+      if (!d.recorded) {
+        // restored turn: no live pendingQuiz on the server → show as answered archive
+        setStale(true);
+        setDontKnow(false);
+        setFbExplanation(quiz.explanation);
+        setFbCorrectLabel(null);
+        setState("feedback");
+        return;
+      }
       setCorrect(dk ? false : Boolean(d.correct));
       setFbExplanation(typeof d.explanation === "string" && d.explanation ? d.explanation : quiz.explanation);
       setFbCorrectLabel(typeof d.correctLabel === "string" ? d.correctLabel : null);
@@ -226,16 +236,19 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
         {dontKnow && <p className="text-sm font-medium text-yellow-500">Tidak apa-apa — ini gap yang akan kita isi.</p>}
       </div>
       <div className="mt-3 space-y-2">
-        <Badge variant="secondary" className="text-[10px]">Terjawab</Badge>
-        {!dontKnow && (
+        <Badge variant="secondary" className="text-[10px]">{stale ? "Dari sesi sebelumnya" : "Terjawab"}</Badge>
+        {!dontKnow && !stale && (
           <p className={`text-sm font-medium ${correct ? "text-green-500" : "text-red-500"}`}>
             {correct ? "Benar!" : `Kurang tepat — jawabannya: ${fbCorrectLabel || "(lihat di atas)"}`}
           </p>
         )}
         <p className="text-sm text-muted-foreground">{fbExplanation ?? quiz.explanation}</p>
-        <Button className="w-full" onClick={() => onContinue(verdictLabel, dontKnow ? false : Boolean(correct))}>
-          Lanjut
-        </Button>
+        {!stale && (
+          <Button className="w-full" onClick={() => onContinue(verdictLabel, dontKnow ? false : Boolean(correct))}>
+            Lanjut
+          </Button>
+        )}
+        {stale && <p className="text-xs text-muted-foreground">Quiz ini dari sesi lama — balas di chat untuk lanjut.</p>}
       </div>
     </Card>
   );
@@ -341,9 +354,12 @@ export default function App() {
         const r = await fetch("/api/restore", { headers: { Authorization: `Bearer ${tok}` } });
         const d = await r.json();
         if (d.messages && d.messages.length > 0) {
-          setMsgs(prev => [...prev, ...d.messages.map((m: { role: string; content: string }) => ({
+          setMsgs(prev => [...prev, ...d.messages.map((m: { role: string; content: string; quiz?: Quiz; mermaid?: string; svg?: string }) => ({
             role: m.role as "user" | "assistant",
             text: m.content,
+            quiz: m.quiz,
+            mermaidCode: m.mermaid,
+            svgCode: m.svg,
           }))]);
           if (d.messages.length > 0) setGoalDone(true);
         }
@@ -540,7 +556,7 @@ export default function App() {
             {m.mermaidCode && <Mermaid code={m.mermaidCode} />}
             {m.svgCode && <Svg code={m.svgCode} />}
             {m.research && <ResearchCard topic={m.research.topic} facts={m.research.facts} />}
-            {busy && i === msgs.length - 1 && <Thinking phase={phase} />}
+            {busy && i === msgs.length - 1 && m.role === "assistant" && !m.quiz && <Thinking phase={phase} />}
             {!busy && m.quiz && (
               <QuizBlock quiz={m.quiz}
                 onRegister={(q) => { activeQuiz.current = { quiz: q, answered: false, ok: false, label: "" }; }}

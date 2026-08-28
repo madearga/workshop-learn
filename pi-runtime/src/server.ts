@@ -233,6 +233,13 @@ function attachQuiz(s: LiveSession, env: TurnEnvelope): PublicQuiz | undefined {
 
 // envelope parsing moved to tutor-reply.ts (deep module, table-tested)
 
+/** Fresh quiz card for restored turns: new quizId, key stays server-side. */
+function attachQuizFromEnvelope(env: TurnEnvelope): PublicQuiz | undefined {
+  if (!env.quiz || !env.quiz.question || !Array.isArray(env.quiz.options)) return undefined;
+  const quizId = randomBytes(8).toString("hex");
+  return { ...env.quiz, quizId, conceptId: env.quiz.conceptId ?? env.quiz.question.slice(0, 80) };
+}
+
 // ---------- fastify ----------
 const app = Fastify({ logger: false });
 
@@ -390,11 +397,24 @@ app.get("/api/host-matrix", async (req) => {
   return { participants: out };
 });
 
-// restore: rebuild transcript from Pi session file (via ParticipantSession facade)
+// restore: rebuild transcript from Pi session file (via ParticipantSession facade).
+// Assistant text is re-parsed through parseTutorReply so old turns regain their
+// quiz/mermaid/svg cards (prose only in the transcript).
 app.get("/api/restore", async (req) => {
   const pid = authPid(req);
   const row = q.participantById.get(pid) as { pi_session_file: string } | undefined;
-  return { messages: readTranscript(row?.pi_session_file) };
+  const messages = readTranscript(row?.pi_session_file).map((m) => {
+    if (m.role !== "assistant") return m;
+    const env = parseTutorReply(m.content).envelope;
+    const quiz = attachQuizFromEnvelope(env);
+    return {
+      ...m,
+      quiz: quiz ?? undefined,
+      mermaid: env.mermaid ?? undefined,
+      svg: env.svg ?? undefined,
+    };
+  });
+  return { messages };
 });
 
 // chat: POST starts a turn; SSE delivers it. Keep POST /api/chat for the old UI (non-streaming).
