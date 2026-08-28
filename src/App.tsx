@@ -340,8 +340,16 @@ export default function App() {
   const [dueConcepts, setDueConcepts] = useState<{ concept: string; mastery: number }[]>([]);
   const inFlight = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, streamText]);
+  // Auto-scroll only when the user is already near the bottom — never yank
+  // them back down while reading earlier messages (scroll-up or answering a
+  // quiz triggers msgs/streamText re-renders).
+  const msgsContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const c = msgsContainerRef.current;
+    if (!c) return;
+    const nearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 160;
+    if (nearBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [msgs, streamText]);
 
   useEffect(() => {
     (async () => {
@@ -543,7 +551,7 @@ export default function App() {
           </Button>
         </Card>
       )}
-      <div className="flex-1 space-y-3 pb-32">
+      <div ref={msgsContainerRef} className="flex-1 space-y-3 pb-32">
         {msgs.map((m, i) => (
           <div key={i} className={`space-y-1 ${m.role === "user" ? "text-right" : ""}`}>
             <Badge variant={m.role === "user" ? "default" : "secondary"} className="text-[10px]">
