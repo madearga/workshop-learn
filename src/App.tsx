@@ -174,13 +174,14 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
       setCorrect(dk ? false : Boolean(d.correct));
       setFbExplanation(typeof d.explanation === "string" && d.explanation ? d.explanation : quiz.explanation);
       setFbCorrectLabel(typeof d.correctLabel === "string" ? d.correctLabel : null);
+      setState("feedback");
+      onAnswered(dk ? false : Boolean(d.correct), label, dk);
     } catch {
       setCorrect(false);
       setFbExplanation(quiz.explanation);
       setFbCorrectLabel(null);
-    } finally {
       setState("feedback");
-      onAnswered(dk ? false : Boolean(correct), label, dk);
+      onAnswered(false, label, dk);
     }
   };
 
@@ -469,6 +470,20 @@ export default function App() {
           {msgs.length > 1 && (
             <Button variant="outline" size="sm" onClick={() => downloadLesson(msgs)}>Simpan</Button>
           )}
+          <Button
+            variant="ghost" size="sm"
+            className="text-muted-foreground"
+            onClick={() => {
+              if (!confirm("Mulai sesi baru? Riwayat sesi ini dihapus (mastery ikut reset).")) return;
+              fetch("/api/reset", { method: "POST", headers: authHeaders() }).finally(() => {
+                localStorage.removeItem(GOAL_KEY);
+                activeQuiz.current = null;
+                setDueConcepts([]);
+                setGoalDone(false);
+                setMsgs([{ role: "assistant", text: "Sesi baru dimulai. Isi goal belajar, atau langsung ketik topik yang mau dibedah." }]);
+              });
+            }}
+          >Sesi baru</Button>
           {new URLSearchParams(window.location.search).has("host") && (
             <Button variant="secondary" size="sm" onClick={() => { window.open("/host", "_blank"); }}>Host view</Button>
           )}

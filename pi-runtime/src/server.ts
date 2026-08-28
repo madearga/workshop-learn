@@ -89,6 +89,7 @@ const q = {
     VALUES (@pid, @quizId, @conceptId, @label, @correct, @dontKnow, @ts)
     ON CONFLICT(participant_id, quiz_id) DO NOTHING`),
   quizRows: db.prepare("SELECT concept_id, correct, dont_know FROM quiz_attempts WHERE participant_id = ?"),
+  clearAttempts: db.prepare("DELETE FROM quiz_attempts WHERE participant_id = ?"),
   saveResearch: db.prepare("INSERT INTO research_items (participant_id, topic, facts, created_at) VALUES (?, ?, ?, ?)"),
   allParticipants: db.prepare("SELECT id, name FROM participants WHERE name != '__selftest__'"),
 };
@@ -446,6 +447,18 @@ app.get("/api/turn-stream", async (req, reply) => {
 });
 
 app.get("/api/health", async () => ({ ok: true, engine: "pi", model: `${MODEL_PROVIDER}/${MODEL_ID}` }));
+
+// Reset: wipe this participant's session (goal, quiz attempts, mastery, Pi transcript).
+// The token stays valid; the next message starts a fresh tutor session.
+app.post("/api/reset", async (req) => {
+  const pid = authPid(req);
+  q.setGoal.run("", "", pid);
+  q.clearAttempts.run(pid);
+  live.get(pid)?.session.dispose();
+  live.delete(pid);
+  try { fs.rmSync(sessionDirFor(pid), { recursive: true, force: true }); } catch {}
+  return { ok: true };
+});
 
 // Serve the React build (same dist as before)
 const DIST = path.join(ROOT, "dist");
