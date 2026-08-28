@@ -141,6 +141,9 @@ async function getLive(pid: number): Promise<LiveSession> {
     settingsManager: SettingsManager.create(cwd),
     noTools: "all", // guardrails: no shell/filesystem for the tutor
   });
+  // Tutor replies are short & structured — deep reasoning is pure latency here
+  // (measured: 78% of output tokens were thinking). Cap it at minimal.
+  session.setThinkingLevel("minimal");
   const s: LiveSession = { session, lastUsed: Date.now(), turnBuf: "", turnEvents: [], turnId: 0, done: true };
   live.set(pid, s);
   return s;
