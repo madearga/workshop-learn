@@ -228,7 +228,7 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
 
   const verdictLabel = dontKnow ? "tidak tahu" : (opts.find(o => o.value === picked)?.label || "");
   return (
-    <Card className="my-2 min-w-0 p-4">
+    <Card className="anim-card-in my-2 min-w-0 p-4">
       <p className="mb-3 text-sm font-medium break-words">{quiz.question}</p>
       <div className="flex flex-col gap-2">
         {opts.map((o) => {
@@ -236,15 +236,15 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
           const isPick = !dontKnow && picked === o.label;
           return (
             <div key={o.value}
-              className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm whitespace-normal break-words ${isKey ? "border-green-500/60 bg-green-500/10" : isPick ? "border-red-500/60 bg-red-500/10" : "opacity-60"}`}>
+              className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm whitespace-normal break-words transition-colors duration-300 ease-out ${isKey ? "border-green-500/60 bg-green-500/10" : isPick ? "border-red-500/60 bg-red-500/10" : "opacity-60"}`}>
               <span aria-hidden>{isKey ? "✓" : isPick ? "✗" : "·"}</span>
               <span className="min-w-0 flex-1">{o.label}</span>
             </div>
           );
         })}
-        {dontKnow && <p className="text-sm font-medium text-yellow-500">Tidak apa-apa — ini gap yang akan kita isi.</p>}
+        {dontKnow && <p className="anim-card-in text-sm font-medium text-yellow-500">Tidak apa-apa — ini gap yang akan kita isi.</p>}
       </div>
-      <div className="mt-3 space-y-2">
+      <div className="anim-card-in mt-3 space-y-2">
         <Badge variant="secondary" className="text-[10px]">{stale ? "Dari sesi sebelumnya" : "Terjawab"}</Badge>
         {!dontKnow && !stale && (
           <p className={`text-sm font-medium ${correct ? "text-green-500" : "text-red-500"}`}>
