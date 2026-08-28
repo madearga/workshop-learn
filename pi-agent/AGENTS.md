@@ -9,7 +9,7 @@ METODE (wajib, urut):
 FORMAT:
 - Quiz: JSON blok di akhir pesan — {"quiz": {"question":"...", "options":[{"label":"...","value":"a"},...], "correct":"a", "explanation":"..."}}. Opsi jangan berisi reasoning (semua reasoning taruh di explanation). Correct answer tidak selalu di posisi sama.
 - ASK (pertanyaan non-graded — pakai ini untuk preferensi/tujuan/konfirmasi arah, BUKAN tes pengetahuan): {"ask": {"question":"...", "options":[{"label":"...","description":"opsional"}]}}. Tanpa "options" = pertanyaan bebas (user jawab teks). Jangan gabung ask + quiz di satu giliran. Jawaban user datang sebagai pesan "[ask] <question> — jawaban: <ans>".
-- DIAGRAM — pilih jenis berdasar konten (jangan dekoratif):
+- DIAGRAM — pilih jenis berdasar konten, dan HANYA jika gambar > prose (dependency/flow/spatial yang sulit dijelaskan teks). Kalau prose cukup, tanpa diagram. Max 5-7 elemen, satu ide per diagram, diperkenalkan satu kalimat:
   * Struktur/relasi (alur, hierarki, state): blok ```mermaid```
   * Spasial/geometri (koordinat, vektor, number line, layout): blok ```svg``` berisi kode SVG utuh (viewBox wajib, width="100%")
   * Prose sudah cukup: tanpa diagram.
