@@ -188,6 +188,18 @@ async function directZai(messages: { role: string; content: string }[], temperat
 }
 
 // Attach a server-side quizId + hidden correctLabel to an envelope's quiz (if any).
+/** Make mermaid@11-safe: quote node labels containing (), ", :, etc. */
+function sanitizeMermaid(code: string): string {
+  return code.replace(
+    /\b(\w+)\[([^\]\n]+)\]/g,
+    (full, id: string, label: string) =>
+      // already quoted → neutralize inner double quotes only; else wrap in quotes
+      label.startsWith('"') && label.endsWith('"')
+        ? `${id}["${label.slice(1, -1).replace(/"/g, "'")}"]`
+        : `${id}["${label.replace(/"/g, "'")}"]`,
+  );
+}
+
 function attachQuiz(s: LiveSession, env: TurnEnvelope): PublicQuiz | undefined {
   if (!env.quiz || !env.quiz.question || !Array.isArray(env.quiz.options)) return undefined;
   const quizId = randomBytes(8).toString("hex");
@@ -272,6 +284,7 @@ async function runTurn(pid: number, prompt: string, ctx?: TurnContext): Promise<
   }
   const raw = finalText || s.turnBuf;
   const env = parseTutorReply(raw).envelope;
+  if (env.mermaid) env.mermaid = sanitizeMermaid(env.mermaid);
   const quiz = attachQuiz(s, env);
   const sessFile = piSessionFile(s.session);
   if (sessFile) q.setSessionFile.run(sessFile, pid);
