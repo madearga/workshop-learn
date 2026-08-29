@@ -276,6 +276,7 @@ function AskBlock({ ask, onAnswered }: { ask: NonNullable<Msg["ask"]>; onAnswere
   const [text, setText] = useState("");
   const submit = (v: string) => {
     if (!v.trim() || answered !== null) return;
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     setAnswered(v.trim());
     onAnswered(v.trim());
   };
