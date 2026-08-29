@@ -173,6 +173,9 @@ function QuizBlock({ quiz, onAnswered, onContinue, onRegister }: {
 
   const submit = async (label: string, dk: boolean) => {
     if (state !== "select") return;
+    // Blur before the select→feedback swap removes the focused option button:
+    // a removed focused element makes Chromium jump focus (and scroll) to body.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     if (dk) setDontKnow(true); else setPicked(label);
     try {
       const r = await fetch("/api/quiz-attempt", {
@@ -273,6 +276,7 @@ function AskBlock({ ask, onAnswered }: { ask: NonNullable<Msg["ask"]>; onAnswere
   const [text, setText] = useState("");
   const submit = (v: string) => {
     if (!v.trim() || answered !== null) return;
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     setAnswered(v.trim());
     onAnswered(v.trim());
   };
@@ -420,12 +424,15 @@ export default function App() {
   // Auto-scroll only when the user is already near the bottom — never yank
   // them back down while reading earlier messages (scroll-up or answering a
   // quiz triggers msgs/streamText re-renders).
-  const msgsContainerRef = useRef<HTMLDivElement>(null);
+  // The real scroll container is the window/document (outer layout is normal
+  // flow), so read scroll position from document.scrollingElement — an inner
+  // div without overflow has scrollHeight === clientHeight, which would make
+  // nearBottom always true and yank the view on every msgs/streamText change.
   useEffect(() => {
-    const c = msgsContainerRef.current;
-    if (!c) return;
-    const nearBottom = c.scrollHeight - c.scrollTop - c.clientHeight < 160;
-    if (nearBottom) endRef.current?.scrollIntoView({ behavior: "smooth" });
+    const sc = document.scrollingElement;
+    if (!sc) return;
+    const nearBottom = sc.scrollHeight - sc.scrollTop - sc.clientHeight < 160;
+    if (nearBottom) endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [msgs, streamText]);
 
   useEffect(() => {
@@ -648,7 +655,7 @@ export default function App() {
           </div>
         </Card>
       )}
-      <div ref={msgsContainerRef} className="flex-1 space-y-3 pb-32">
+      <div className="flex-1 space-y-3 pb-32">
         {msgs.map((m, i) => (
           <div key={i} className={`space-y-1 ${m.role === "user" ? "text-right" : ""}`}>
             <Badge variant={m.role === "user" ? "default" : "secondary"} className="text-[10px]">
