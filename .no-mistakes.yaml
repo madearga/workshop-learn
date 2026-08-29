@@ -1,0 +1,7 @@
+# Integration branch is rewrite/pi-typescript, not the retired master fallback:
+# PRs must target it and the rebase step must integrate onto it.
+# allow_repo_commands lets this pushed-branch copy be honored because the trusted
+# default branch (master) has no .no-mistakes.yaml (single-developer personal repo).
+pr:
+  base_branch: rewrite/pi-typescript
+allow_repo_commands: true
